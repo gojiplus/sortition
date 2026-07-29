@@ -3,6 +3,8 @@
     sortition doctor  logs.parquet
     sortition eval    logs.parquet --target always:premium --metric cost_usd
     sortition compare logs.parquet --a uniform --b always:premium
+    sortition report  logs.parquet --baseline always:premium --out report.md
+    sortition policy  build rules.yaml -o policy.json
     sortition demo    --out logs.parquet
 
 ``doctor`` comes first on purpose. Whether a log can support a counterfactual
@@ -22,6 +24,12 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+policy_app = typer.Typer(
+    name="policy",
+    help="Build and inspect versioned routing policies.",
+    no_args_is_help=True,
+)
+app.add_typer(policy_app)
 
 
 def _load(path: Path) -> object:
@@ -45,12 +53,26 @@ def doctor(
     log: Annotated[Path, typer.Argument(help="Log file to inspect.")],
     target: Annotated[
         str, typer.Option(help="Target policy to assess overlap against.")
-    ] = ("uniform"),
+    ] = "uniform",
+    check: Annotated[
+        bool,
+        typer.Option(
+            help="Exit non-zero when the log cannot support estimates. For alerts."
+        ),
+    ] = False,
 ) -> None:
     """Report whether a log can support counterfactual claims."""
     from sortition.eval.report import doctor as run_doctor
+    from sortition.health import assess
 
-    typer.echo(run_doctor(_load(log), target))  # type: ignore[arg-type]
+    frame = _load(log)
+    typer.echo(run_doctor(frame, target))  # type: ignore[arg-type]
+
+    report = assess(frame)  # type: ignore[arg-type]
+    typer.echo("")
+    typer.echo(report.explain())
+    if check and not report.ok:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -159,6 +181,96 @@ def demo(
         )
     typer.echo(f"  {'logged policy':<15} outcome={problem.value(policy):.4f} ")
     typer.echo(f"\ntry:  sortition doctor {out}")
+
+
+@policy_app.command("build")
+def policy_build(
+    rules: Annotated[Path, typer.Argument(help="YAML rule table.")],
+    out: Annotated[Path, typer.Option("--out", "-o", help="Artifact to write.")] = Path(
+        "policy.json"
+    ),
+    epsilon: Annotated[
+        float, typer.Option(help="Share of traffic kept exploring.")
+    ] = 0.05,
+    name: Annotated[
+        str | None, typer.Option(help="Label prefixed to the content hash.")
+    ] = None,
+) -> None:
+    """Compile a rule table into a versioned, deployable policy artifact."""
+    from sortition.decide import ExplorationConfig, RulesPolicy, build, save
+
+    if not rules.exists():
+        raise typer.BadParameter(f"no such file: {rules}")
+
+    artifact = build(
+        RulesPolicy.from_yaml(rules),
+        ExplorationConfig(epsilon=epsilon),
+        name=name,
+        git_sha=_git_sha(),
+    )
+    save(artifact, out)
+    typer.echo(f"wrote {artifact.policy_version} to {out}")
+    if epsilon < 0.01:
+        typer.echo(
+            "WARNING: this policy explores less than 1% of traffic. Its logs "
+            "will confirm what it already prefers and nothing else."
+        )
+
+
+@policy_app.command("show")
+def policy_show(
+    artifact: Annotated[Path, typer.Argument(help="Policy artifact to inspect.")],
+) -> None:
+    """Print what a deployed policy actually does."""
+    from sortition.decide.artifact import load
+
+    if not artifact.exists():
+        raise typer.BadParameter(f"no such file: {artifact}")
+
+    policy, exploration, meta = load(artifact)
+    typer.echo(f"version:     {meta.policy_version}")
+    typer.echo(f"kind:        {meta.kind}")
+    typer.echo(f"created:     {meta.created_at:%Y-%m-%d %H:%M:%S %Z}")
+    typer.echo(f"arms:        {', '.join(meta.arms)}")
+    typer.echo(f"exploration: {exploration.strategy} eps={exploration.epsilon:g}")
+    if meta.git_sha:
+        typer.echo(f"git:         {meta.git_sha}")
+
+    rules = getattr(policy, "rules", ())
+    if rules:
+        typer.echo("\nrules, first match wins:")
+        for rule in rules:
+            label = rule.label or "(unlabelled)"
+            action = (
+                f"exclude {', '.join(rule.exclude)}"
+                if rule.exclude
+                else f"prefer {', '.join(rule.prefer)}"
+            )
+            typer.echo(f"  {label}: when {rule.when or '(always)'} -> {action}")
+    default = getattr(policy, "default", ())
+    if default:
+        typer.echo(f"\ndefault order: {', '.join(default)}")
+
+
+def _git_sha() -> str | None:
+    """Return the current commit, when the working directory is a repo.
+
+    Returns:
+        The short SHA, or None outside a repository.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None if result.returncode == 0 else None
 
 
 def main() -> None:
