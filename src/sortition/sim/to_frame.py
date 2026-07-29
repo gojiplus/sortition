@@ -37,7 +37,9 @@ def to_frame(
 
     rng = np.random.default_rng(seed)
     n = logs.n
-    base = start or datetime(2026, 6, 1, tzinfo=UTC)
+    # Ending at "now" rather than a fixed past date, so that a window like
+    # --since 7d selects something on a freshly generated demo log.
+    base = start or (datetime.now(UTC) - timedelta(seconds=n))
     arms = np.array(problem.arms)
 
     chosen = arms[logs.action]

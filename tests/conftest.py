@@ -29,6 +29,7 @@ _NEEDS: dict[str, tuple[str, ...]] = {
     "test_estimators.py": ("scipy", "sklearn"),
     "test_health.py": ("polars", "scipy"),
     "test_report.py": ("polars", "scipy"),
+    "test_reporting.py": ("polars", "scipy", "rich"),
     "test_store.py": ("polars", "duckdb"),
     "test_cli.py": ("typer", "polars"),
 }

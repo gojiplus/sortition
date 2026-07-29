@@ -273,6 +273,59 @@ def _git_sha() -> str | None:
     return result.stdout.strip() or None if result.returncode == 0 else None
 
 
+@app.command()
+def report(
+    log: Annotated[Path, typer.Argument(help="Log file to report on.")],
+    baseline: Annotated[
+        list[str] | None,
+        typer.Option(help="Policy to compare against. Repeatable."),
+    ] = None,
+    metrics: Annotated[str, typer.Option(help="Comma-separated metric columns.")] = (
+        "outcome,cost_usd"
+    ),
+    since: Annotated[str | None, typer.Option(help="Window, e.g. 7d, 24h, 2w.")] = None,
+    out: Annotated[
+        Path | None, typer.Option("--out", "-o", help="Write markdown here.")
+    ] = None,
+    check: Annotated[
+        bool, typer.Option(help="Exit non-zero when the log cannot support estimates.")
+    ] = False,
+) -> None:
+    """Summarise a window of routing traffic, for forwarding."""
+    import polars as pl
+
+    from sortition.reporting import build, parse_since, to_markdown, to_terminal
+
+    frame = _load(log)
+    window = "all time"
+    if since:
+        cutoff = parse_since(since)
+        window = f"last {since}"
+        if "ts" in frame.columns:  # type: ignore[union-attr]
+            frame = frame.filter(pl.col("ts") >= cutoff)  # type: ignore[union-attr]
+            if frame.height == 0:  # type: ignore[union-attr]
+                # A quiet window is a normal answer, not a crash.
+                typer.echo(f"no requests in the last {since}.")
+                raise typer.Exit(code=0)
+        else:
+            typer.echo("note: log has no ts column; reporting on all rows")
+
+    result = build(
+        frame,  # type: ignore[arg-type]
+        baselines=tuple(baseline) if baseline else ("always:premium",),
+        metrics=tuple(m.strip() for m in metrics.split(",") if m.strip()),
+        window=window,
+    )
+
+    if out is not None:
+        out.write_text(to_markdown(result), encoding="utf-8")
+        typer.echo(f"wrote {out}")
+    to_terminal(result)
+
+    if check and not result.trustworthy:
+        raise typer.Exit(code=1)
+
+
 def main() -> None:
     """Entry point for the ``sortition`` console script."""
     app()

@@ -43,6 +43,8 @@ eval = [
     "scipy>=1.14",
     "polars>=1.0",
     "duckdb>=1.0",
+    # Required at runtime by duckdb: .pl() converts results through
+    # Arrow. Never imported directly, which is why deptry needs telling.
     "pyarrow>=17.0",
     # The default estimator is doubly robust, so a cross-fitted outcome model is
     # part of the eval path rather than an optional upgrade to it.
@@ -116,3 +118,9 @@ exclude = '\.venv|tests|docs'
 [tool.uv-dynamic-versioning]
 vcs = "git"
 style = "pep440"
+
+[tool.deptry.per_rule_ignores]
+# pyarrow: a transitive runtime requirement of duckdb's .pl(), never imported
+# by name. Removing it breaks every read path, which is how it was confirmed.
+# sortition: the self-reference is how extras compose (cli = ["sortition[eval]"]).
+DEP002 = ["pyarrow", "sortition"]
