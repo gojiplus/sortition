@@ -33,6 +33,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from sortition import metrics
+
 logger = logging.getLogger(__name__)
 
 DECISIONS = "decisions"
@@ -101,8 +103,12 @@ class ParquetSink:
         self.flush_interval = max(0.1, flush_interval)
         self.flush_every = max(1, flush_every)
         self.max_buffered = max(1, max_buffered)
-        self._on_write = on_write
-        self._on_drop = on_drop
+        self._on_write = on_write or (
+            lambda table, n: metrics.sink_rows.labels(table=table).inc(n)
+        )
+        self._on_drop = on_drop or (
+            lambda table, n: metrics.sink_dropped.labels(table=table).inc(n)
+        )
 
         self._buffers: dict[str, list[dict[str, Any]]] = {t: [] for t in TABLES}
         self._lock = threading.Lock()

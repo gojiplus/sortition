@@ -19,8 +19,10 @@ group that contains both, which is how LiteLLM's own examples are written.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sortition import metrics
 from sortition.integrations.features import extract
 
 if TYPE_CHECKING:
@@ -79,6 +81,10 @@ class SortitionPlugin:
         try:
             return self._decide(context)
         except Exception:
+            # Counted, not just logged: a fail-open plugin looks exactly like a
+            # healthy one from outside -- requests succeed, latency is normal --
+            # so this counter is the only signal that routing has stopped.
+            metrics.plugin_errors.inc()
             logger.exception(
                 "sortition plugin failed; leaving routing untouched so the "
                 "request still succeeds. This request will not be evaluable."
@@ -99,7 +105,15 @@ class SortitionPlugin:
             tools=metadata.get("tools"),
             extra=self.feature_extra,
         )
+        start = time.perf_counter()
         decision = self.engine.decide(features=features, eligible=candidates)
+        metrics.observe_decision(
+            arm=decision.chosen_arm,
+            policy_version=decision.policy_version,
+            explore=decision.explore,
+            propensity_value=decision.propensity,
+            seconds=time.perf_counter() - start,
+        )
 
         context.candidate_models = [decision.chosen_arm]
         context.signals[SIGNAL_KEY] = {

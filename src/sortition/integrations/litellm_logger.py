@@ -18,6 +18,7 @@ from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
+from sortition import metrics
 from sortition.integrations.adapters import read_decision, to_log_row
 from sortition.store.writer import LogStore
 
@@ -81,6 +82,14 @@ class SortitionLogger(CustomLogger):  # type: ignore[misc]
             row = to_log_row(kwargs, decision)
             row["status"] = status
             self.store.write_decision(row)
+            metrics.observe_execution(
+                chosen_arm=row.get("chosen_arm"),
+                served_arm=row.get("served_arm"),
+                fallback_depth=int(row.get("fallback_depth") or 0),
+                cost=row.get("cost_usd"),
+                tokens_in=row.get("tokens_in"),
+                tokens_out=row.get("tokens_out"),
+            )
         except Exception:
             # Same contract as the plugin: logging must never fail a request.
             logger.exception("sortition failed to record a routing decision")

@@ -40,11 +40,12 @@ def _as_date(value: TimeBound) -> str | None:
     Args:
         value: A date, datetime, ``YYYY-MM-DD`` string, or None.
 
+    A non-ISO string propagates ``ValueError`` from ``date.fromisoformat``,
+    which is the right failure: a mistyped bound would otherwise silently widen
+    or narrow the window.
+
     Returns:
         A ``YYYY-MM-DD`` string, or None when unbounded.
-
-    Raises:
-        ValueError: If a string is not ISO-formatted.
     """
     if value is None:
         return None

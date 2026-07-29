@@ -53,8 +53,9 @@ train = [
     "lightgbm>=4.5",
 ]
 litellm = ["litellm>=1.92"]
+metrics = ["prometheus-client>=0.20"]
 cli = ["sortition[eval]", "typer>=0.12", "rich>=13.0"]
-all = ["sortition[eval,train,litellm,cli]"]
+all = ["sortition[eval,train,litellm,cli,metrics]"]
 
 [project.urls]
 Homepage = "https://github.com/soodoku/sortition"

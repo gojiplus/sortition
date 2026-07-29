@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sortition import metrics
 from sortition.decide.engine import DecisionEngine, ExplorationConfig
 from sortition.decide.policy import (
     ConstantPolicy,
@@ -266,10 +267,9 @@ class ReloadingEngine:
             engine_factory: Builds a :class:`DecisionEngine` from
                 ``(policy, exploration, policy_version)``. Injectable for tests.
 
-        Raises:
-            ValueError: If the artifact cannot be loaded at startup. Failing
-                here is deliberate: starting with no policy is worse than not
-                starting.
+        An unreadable or invalid artifact propagates out of here rather than
+        being caught. That is deliberate: reloads fall back to the running
+        policy, but starting with no policy at all is worse than not starting.
         """
         self.path = Path(path)
         self.poll_interval = poll_interval
@@ -344,6 +344,7 @@ class ReloadingEngine:
                 engine = self._build()
             except Exception:
                 self.reload_errors += 1
+                metrics.policy_reload_errors.inc()
                 # Deliberately keeps serving the old policy. Falling back to a
                 # default would route real traffic under a policy nobody chose.
                 logger.exception(
@@ -362,6 +363,7 @@ class ReloadingEngine:
             self._engine = engine
             self._fingerprint = fingerprint
             self.reloads += 1
+            metrics.policy_reloads.inc()
             logger.info(
                 "reloaded policy %s -> %s from %s",
                 previous,
