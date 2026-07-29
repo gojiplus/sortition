@@ -1,5 +1,6 @@
 """Making routing decisions that can be evaluated afterwards."""
 
+from sortition.decide.artifact import ReloadingEngine, build, load, save
 from sortition.decide.engine import DecisionEngine, ExplorationConfig
 from sortition.decide.policy import (
     ConstantPolicy,
@@ -17,9 +18,13 @@ __all__ = [
     "DecisionEngine",
     "ExplorationConfig",
     "Policy",
+    "ReloadingEngine",
     "Rule",
     "RulesPolicy",
     "WeightedPolicy",
+    "build",
+    "load",
     "propensities",
     "sample_with_propensity",
+    "save",
 ]

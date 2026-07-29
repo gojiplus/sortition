@@ -160,7 +160,10 @@ class PolicyArtifact(BaseModel):
 
     schema_version: int = SCHEMA_VERSION
     policy_version: str
-    kind: Literal["rules", "tree", "constant"]
+    kind: Literal["rules", "tree", "constant", "weighted", "cost_aware"]
+    """Widening this set is additive: every previously valid value still
+    validates, so old artifacts keep loading."""
+
     created_at: datetime
     arms: tuple[Arm, ...]
     feature_spec: tuple[str, ...] = ()

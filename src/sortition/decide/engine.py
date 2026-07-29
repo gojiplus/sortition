@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -60,6 +61,9 @@ class DecisionEngine:
     exploration: ExplorationConfig = field(default_factory=ExplorationConfig)
     policy_version: str | None = None
     rng: random.Random = field(default_factory=random.Random)
+    _rng_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         """Derive a policy version and warn about un-evaluable configurations."""
@@ -176,12 +180,21 @@ class DecisionEngine:
             return greedy, 1.0, False
 
         epsilon = self.exploration.epsilon
-        if self.rng.random() < epsilon:
+        # random.Random is not thread-safe, and a Router may be driven from a
+        # thread pool. Interleaved draws would not corrupt anything visibly --
+        # they would just quietly stop matching the propensities being logged,
+        # which is the failure this project exists to prevent. The lock is
+        # roughly 100ns uncontended.
+        with self._rng_lock:
+            explore_roll = self.rng.random()
+            candidate = self.rng.choice(survivors)
+
+        if explore_roll < epsilon:
             # Uniform over the whole eligible set, including the greedy arm --
             # which is why the greedy arm's propensity is 1-eps+eps/n and not
             # simply 1-eps. Getting this wrong is the classic epsilon-greedy
             # propensity bug.
-            chosen = self.rng.choice(survivors)
+            chosen = candidate
             explored = chosen != greedy
         else:
             chosen, explored = greedy, False

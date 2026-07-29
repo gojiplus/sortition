@@ -8,7 +8,7 @@ deployed with an exploration floor and evaluated without one.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 Features = dict[str, Any]
@@ -102,7 +102,6 @@ class CostAwarePolicy:
     cost_usd: dict[str, float]
     cost_weight: float = 0.0
     name: str = "cost-aware"
-    _max_cost: float = field(default=0.0, init=False, repr=False)
 
     def score(self, features: Features, eligible: tuple[str, ...]) -> dict[str, float]:
         """Score arms by quality minus weighted, normalized cost.
