@@ -31,6 +31,7 @@ _NEEDS: dict[str, tuple[str, ...]] = {
     "test_report.py": ("polars", "scipy"),
     "test_reporting.py": ("polars", "scipy", "rich"),
     "test_store.py": ("polars", "duckdb"),
+    "test_targets.py": ("scipy",),
     "test_cli.py": ("typer", "polars"),
 }
 collect_ignore = [
