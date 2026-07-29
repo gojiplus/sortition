@@ -1,0 +1,55 @@
+name: Statistical checks
+
+# Two properties the fleet's reusable CI cannot know about. Kept in their own
+# workflow because .github/workflows/ci.yml is preen-managed and `preen update`
+# would overwrite anything added there.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-simulations:
+    # Estimator coverage is only meaningful at high replication counts, which
+    # are too slow for a local edit-test loop. CI runs them at full size.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --all-groups
+      - run: uv run pytest
+        env:
+          SORTITION_FULL_SIMS: "1"
+
+  minimal-install:
+    # The eval path is the adoption surface: someone with a parquet file of
+    # routing logs must be able to use it without installing a gateway. If a
+    # stray import creeps in, this fails.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv venv
+      - run: uv pip install '.[eval]'
+      - name: Import the eval path with no gateway installed
+        run: |
+          uv run python -c "
+          import importlib.util
+          import sortition.eval, sortition.schema, sortition.sim, sortition.targets
+          for forbidden in ('litellm', 'fastapi', 'lightgbm'):
+              assert importlib.util.find_spec(forbidden) is None, forbidden
+          print('eval path imports clean')
+          "

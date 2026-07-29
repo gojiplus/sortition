@@ -35,15 +35,17 @@ def _load(path: Path) -> object:
         return pl.read_csv(path, separator="\t" if path.suffix == ".tsv" else ",")
     if path.suffix in (".ndjson", ".jsonl"):
         return pl.read_ndjson(path)
-    raise typer.BadParameter(f"unsupported format {path.suffix!r}; use parquet, csv, or ndjson")
+    raise typer.BadParameter(
+        f"unsupported format {path.suffix!r}; use parquet, csv, or ndjson"
+    )
 
 
 @app.command()
 def doctor(
     log: Annotated[Path, typer.Argument(help="Log file to inspect.")],
-    target: Annotated[str, typer.Option(help="Target policy to assess overlap against.")] = (
-        "uniform"
-    ),
+    target: Annotated[
+        str, typer.Option(help="Target policy to assess overlap against.")
+    ] = ("uniform"),
 ) -> None:
     """Report whether a log can support counterfactual claims."""
     from sortition.eval.report import doctor as run_doctor
@@ -54,11 +56,17 @@ def doctor(
 @app.command()
 def eval(
     log: Annotated[Path, typer.Argument(help="Log file to evaluate.")],
-    target: Annotated[str, typer.Option(help="e.g. always:premium-reasoning, uniform.")],
+    target: Annotated[
+        str, typer.Option(help="e.g. always:premium-reasoning, uniform.")
+    ],
     metric: Annotated[str, typer.Option(help="Column to evaluate.")] = "outcome",
-    estimator: Annotated[str, typer.Option(help="ips, snips, dm, dr, switch_dr, dr_os.")] = "dr",
+    estimator: Annotated[
+        str, typer.Option(help="ips, snips, dm, dr, switch_dr, dr_os.")
+    ] = "dr",
     alpha: Annotated[float, typer.Option(help="1 - confidence level.")] = 0.05,
-    anytime: Annotated[bool, typer.Option(help="Interval valid under repeated peeking.")] = False,
+    anytime: Annotated[
+        bool, typer.Option(help="Interval valid under repeated peeking.")
+    ] = False,
 ) -> None:
     """Estimate what a metric would have been under a target policy."""
     from sortition.eval.report import evaluate
@@ -111,8 +119,12 @@ def demo(
         "sortition-demo.parquet"
     ),
     n: Annotated[int, typer.Option(help="Number of requests.")] = 20_000,
-    epsilon: Annotated[float, typer.Option(help="Exploration rate of the logging policy.")] = 0.2,
-    fallback_rate: Annotated[float, typer.Option(help="Share of gateway fallbacks.")] = 0.02,
+    epsilon: Annotated[
+        float, typer.Option(help="Exploration rate of the logging policy.")
+    ] = 0.2,
+    fallback_rate: Annotated[
+        float, typer.Option(help="Share of gateway fallbacks.")
+    ] = 0.02,
     seed: Annotated[int, typer.Option()] = 0,
 ) -> None:
     """Write a synthetic but realistic log, for trying the other commands."""
@@ -150,6 +162,7 @@ def demo(
 
 
 def main() -> None:
+    """Entry point for the ``sortition`` console script."""
     app()
 
 

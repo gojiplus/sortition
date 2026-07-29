@@ -49,12 +49,18 @@ class TestBettingInterval:
     floor, not a band."""
 
     @pytest.mark.parametrize(("p_true", "n"), [(0.5, 200), (0.1, 300), (0.9, 300)])
-    def test_covers_at_least_nominal(self, p_true: float, n: int, n_replications: int) -> None:
-        coverage, _ = _bernoulli_coverage(p_true, n, min(n_replications, 300), "betting")
+    def test_covers_at_least_nominal(
+        self, p_true: float, n: int, n_replications: int
+    ) -> None:
+        coverage, _ = _bernoulli_coverage(
+            p_true, n, min(n_replications, 300), "betting"
+        )
         assert coverage >= 0.95
 
     def test_anytime_variant_also_covers(self, n_replications: int) -> None:
-        coverage, _ = _bernoulli_coverage(0.3, 300, min(n_replications, 300), "betting_anytime")
+        coverage, _ = _bernoulli_coverage(
+            0.3, 300, min(n_replications, 300), "betting_anytime"
+        )
         assert coverage >= 0.95
 
     def test_anytime_costs_width(self) -> None:
@@ -109,11 +115,11 @@ class TestBootstrapInterval:
         reps = min(n_replications, 200)
         for _ in range(reps):
             x = rng.lognormal(0.0, 1.0, 2_000)
-            covered += bootstrap_ci(x, n_resamples=399, seed=int(rng.integers(1_000_000))).covers(
-                truth
-            )
+            covered += bootstrap_ci(
+                x, n_resamples=399, seed=int(rng.integers(1_000_000))
+            ).covers(truth)
         assert covered / reps >= 0.88
 
     def test_needs_more_than_one_observation(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="at least two observations"):
             bootstrap_ci(np.array([1.0]))

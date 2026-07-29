@@ -50,7 +50,9 @@ def to_frame(
         shifted = (logs.action[hit] + 1) % problem.n_arms
         served[hit] = arms[shifted]
 
-    eligible_sets = [[problem.arms[a] for a in np.flatnonzero(row)] for row in logs.eligible]
+    eligible_sets = [
+        [problem.arms[a] for a in np.flatnonzero(row)] for row in logs.eligible
+    ]
     features = [
         {
             "n_tokens": float(x[0] * 100.0 + 300.0),

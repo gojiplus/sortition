@@ -27,8 +27,13 @@ IntArray = NDArray[np.int64]
 class Regressor(Protocol):
     """The sklearn-style fit/predict pair this module needs."""
 
-    def fit(self, X: FloatArray, y: FloatArray) -> Any: ...
-    def predict(self, X: FloatArray) -> Any: ...
+    def fit(self, X: FloatArray, y: FloatArray) -> Any:
+        """Fit the model on a design matrix and targets."""
+        ...
+
+    def predict(self, X: FloatArray) -> Any:
+        """Predict targets for a design matrix."""
+        ...
 
 
 def default_regressor(seed: int = 0) -> Regressor:
@@ -111,7 +116,9 @@ def fit_outcome_model(
     folds = KFold(n_splits=min(n_folds, n), shuffle=True, random_state=seed)
     for train_idx, test_idx in folds.split(contexts):
         model = factory(seed)
-        model.fit(_design(contexts[train_idx], action[train_idx], n_arms), reward[train_idx])
+        model.fit(
+            _design(contexts[train_idx], action[train_idx], n_arms), reward[train_idx]
+        )
         for a in range(n_arms):
             q_hat[test_idx, a] = model.predict(_design(contexts[test_idx], a, n_arms))
     return q_hat

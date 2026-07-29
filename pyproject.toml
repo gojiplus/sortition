@@ -1,14 +1,14 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
 
 [project]
 name = "sortition"
-version = "0.1.0.dev0"
 description = "Counterfactual evaluation for LLM routing policies"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Gaurav Sood", email = "gsood07@gmail.com" }]
 keywords = [
     "off-policy-evaluation",
@@ -22,7 +22,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -33,6 +32,7 @@ dependencies = [
     "numpy>=1.26",
     "pydantic>=2.9",
 ]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 # The eval path must install without litellm or fastapi: it has to run on a
@@ -64,52 +64,29 @@ Issues = "https://github.com/soodoku/sortition/issues"
 sortition = "sortition.cli:main"
 
 [dependency-groups]
-dev = [
-    "sortition[all]",
-    "pytest>=8.3",
-    "pytest-cov>=5.0",
-    "hypothesis>=6.100",
-    "ruff>=0.7",
-    "mypy>=1.13",
-]
+dev = ["sortition[all]", "pytest>=8.3", "pytest-cov>=5.0", "hypothesis>=6.100", "ruff>=0.7", "pyright>=1.1.390", "pydoclint>=0.5", "deptry>=0.20", "codespell>=2.4"]
+docs = ["sphinx>=8", "furo", "myst-parser", "sphinx-copybutton", "py-canon @ git+https://github.com/gojiplus/py-canon@v1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sortition"]
 
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
 [tool.ruff]
-line-length = 100
+line-length = 88
 target-version = "py312"
-src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = [
-    "E",    # pycodestyle
-    "F",    # pyflakes
-    "I",    # isort
-    "UP",   # pyupgrade
-    "B",    # bugbear
-    "SIM",  # simplify
-    "RUF",  # ruff-specific
-    "N",    # pep8-naming
-]
-ignore = [
-    # Statistical code reads better with the field's own notation: n, p, q, X, y.
-    "N803",
-    "N806",
-]
+external = ["DOC"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF"]
+ignore = ["D203", "D213", "N803", "N806"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B018"]
-
-[tool.mypy]
-python_version = "3.12"
-strict = true
-warn_unreachable = true
-files = ["src/sortition"]
-
-[[tool.mypy.overrides]]
-module = ["scipy.*", "lightgbm.*", "sklearn.*", "duckdb.*", "litellm.*"]
-ignore_missing_imports = true
+"tests/**" = ["S101", "D"]
+"docs/**" = ["D"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -119,3 +96,19 @@ markers = [
     # Reduced locally, full count in CI.
     "slow: statistical validation requiring many replications",
 ]
+
+[tool.pyright]
+include = ["src"]
+typeCheckingMode = "standard"
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-class-attributes = false
+allow-init-docstring = true
+exclude = '\.venv|tests|docs'
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"

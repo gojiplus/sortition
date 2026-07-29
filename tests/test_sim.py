@@ -21,17 +21,23 @@ from sortition.sim import (
 
 
 class TestExactValue:
-    def test_analytic_value_matches_realized_rewards(self, problem: BanditProblem) -> None:
+    def test_analytic_value_matches_realized_rewards(
+        self, problem: BanditProblem
+    ) -> None:
         policy = uniform_policy()
         logs = sample_logs(problem, policy, 400_000, seed=21)
         # On-policy, the plain mean of realized rewards estimates the same
         # quantity that value() computes in closed form.
-        assert float(logs.reward.mean()) == pytest.approx(problem.value(policy), abs=0.004)
+        assert float(logs.reward.mean()) == pytest.approx(
+            problem.value(policy), abs=0.004
+        )
 
     def test_analytic_cost_matches_realized_cost(self, problem: BanditProblem) -> None:
         policy = uniform_policy()
         logs = sample_logs(problem, policy, 400_000, seed=22)
-        assert float(logs.cost.mean()) == pytest.approx(problem.cost_value(policy), rel=0.03)
+        assert float(logs.cost.mean()) == pytest.approx(
+            problem.cost_value(policy), rel=0.03
+        )
 
     def test_value_has_no_sampling_noise(self, problem: BanditProblem) -> None:
         # The finite context pool is what makes the oracle exact; calling it
@@ -48,7 +54,9 @@ class TestExactValue:
 class TestPolicyContract:
     @pytest.mark.parametrize("ineligible_rate", [0.0, 0.4])
     def test_probabilities_are_distributions(self, ineligible_rate: float) -> None:
-        problem = make_problem(n_contexts=200, n_arms=5, seed=3, ineligible_rate=ineligible_rate)
+        problem = make_problem(
+            n_contexts=200, n_arms=5, seed=3, ineligible_rate=ineligible_rate
+        )
         rng = np.random.default_rng(0)
         policies = [
             uniform_policy(),
@@ -69,7 +77,9 @@ class TestPolicyContract:
         problem = make_problem(n_contexts=100, n_arms=4, seed=4)
         weights = np.random.default_rng(0).standard_normal((6, 4))
         epsilon = 0.2
-        probs = epsilon_greedy_policy(weights, epsilon=epsilon)(problem.contexts, problem.eligible)
+        probs = epsilon_greedy_policy(weights, epsilon=epsilon)(
+            problem.contexts, problem.eligible
+        )
 
         greedy = (problem.contexts @ weights).argmax(axis=1)
         expected_greedy = 1.0 - epsilon + epsilon / 4
@@ -97,7 +107,9 @@ class TestSampling:
             logs.propensity, probs[np.arange(logs.n), logs.action], rtol=1e-12
         )
 
-    def test_action_frequencies_match_propensities(self, problem: BanditProblem) -> None:
+    def test_action_frequencies_match_propensities(
+        self, problem: BanditProblem
+    ) -> None:
         policy = uniform_policy()
         logs = sample_logs(problem, policy, 200_000, seed=24)
         empirical = np.bincount(logs.action, minlength=problem.n_arms) / logs.n
@@ -113,7 +125,9 @@ class TestSampling:
         logs = sample_logs(problem, constant_policy(0), 2_000, seed=26)
         assert (logs.propensity > 0).all()
 
-    def test_rewards_are_bounded_and_costs_are_not(self, problem: BanditProblem) -> None:
+    def test_rewards_are_bounded_and_costs_are_not(
+        self, problem: BanditProblem
+    ) -> None:
         logs = sample_logs(problem, uniform_policy(), 10_000, seed=27)
         assert set(np.unique(logs.reward)) <= {0.0, 1.0}
         assert logs.cost.min() > 0.0

@@ -31,7 +31,17 @@ class Policy(Protocol):
     assuming it, which is how support violations get caught.
     """
 
-    def __call__(self, contexts: FloatArray, eligible: BoolArray) -> FloatArray: ...
+    def __call__(self, contexts: FloatArray, eligible: BoolArray) -> FloatArray:
+        """Return action probabilities for each context.
+
+        Args:
+            contexts: An ``(n, d)`` feature matrix.
+            eligible: An ``(n, K)`` mask of arms surviving the hard filter.
+
+        Returns:
+            An ``(n, K)`` array whose rows sum to 1.
+        """
+        ...
 
 
 @dataclass(frozen=True)
@@ -55,10 +65,12 @@ class BanditProblem:
 
     @property
     def n_contexts(self) -> int:
+        """Size of the finite context pool."""
         return int(self.contexts.shape[0])
 
     @property
     def n_arms(self) -> int:
+        """Number of arms."""
         return len(self.arms)
 
     def value(self, policy: Policy) -> float:
@@ -99,10 +111,13 @@ class LoggedData:
 
     @property
     def n(self) -> int:
+        """Number of logged rows."""
         return int(self.action.shape[0])
 
 
-def _masked_softmax(scores: FloatArray, eligible: BoolArray, temperature: float) -> FloatArray:
+def _masked_softmax(
+    scores: FloatArray, eligible: BoolArray, temperature: float
+) -> FloatArray:
     """Softmax restricted to eligible arms, renormalized over the survivors."""
     masked = np.where(eligible, scores / temperature, -np.inf)
     masked = masked - masked.max(axis=1, keepdims=True)
@@ -147,7 +162,9 @@ def make_problem(
         eligible[:, 0] = True
 
     arms = tuple(f"arm-{i}" for i in range(n_arms))
-    return BanditProblem(contexts=contexts, q=q, cost=cost, eligible=eligible, arms=arms)
+    return BanditProblem(
+        contexts=contexts, q=q, cost=cost, eligible=eligible, arms=arms
+    )
 
 
 def sample_logs(

@@ -50,9 +50,11 @@ class Estimate:
 
     @property
     def trustworthy(self) -> bool:
+        """Whether the logged data supports reporting this estimate."""
         return self.diagnostics.overlap_ok
 
     def __str__(self) -> str:
+        """Render the estimate, its interval, and any warnings."""
         head = f"{self.metric} under target policy: {self.value:.6g}"
         if self.interval is not None:
             head += (
@@ -370,10 +372,10 @@ def _build_interval(
         # SNIPS: resample rows and recompute the ratio.
         from scipy.stats import bootstrap
 
-        numer = weights * reward
+        numerator = weights * reward
 
         def ratio(idx: NDArray[np.int64]) -> NDArray[np.float64]:
-            return np.asarray(numer[idx].sum(axis=-1) / weights[idx].sum(axis=-1))
+            return np.asarray(numerator[idx].sum(axis=-1) / weights[idx].sum(axis=-1))
 
         result = bootstrap(
             (np.arange(weights.shape[0]),),

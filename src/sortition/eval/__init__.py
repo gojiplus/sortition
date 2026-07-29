@@ -1,7 +1,11 @@
 """Counterfactual evaluation of routing policies from logged bandit feedback."""
 
 from sortition.eval.ci import Interval, betting_ci, bootstrap_ci, normal_ci
-from sortition.eval.diagnostics import Diagnostics, compute_diagnostics, effective_sample_size
+from sortition.eval.diagnostics import (
+    Diagnostics,
+    compute_diagnostics,
+    effective_sample_size,
+)
 from sortition.eval.estimators import (
     Estimate,
     EstimatorName,

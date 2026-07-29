@@ -4,60 +4,19 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"  # weekly: surface ecosystem drift on quiet repos
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # Coverage simulations run at full replication count in CI only.
-  SORTITION_FULL_SIMS: "1"
-
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9
-        with:
-          enable-cache: true
-      - run: uv sync --all-extras
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy
-
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9
-        with:
-          enable-cache: true
-          python-version: ${{ matrix.python-version }}
-      - run: uv sync --all-extras
-      - run: uv run pytest --cov=sortition --cov-report=xml
-
-  # The eval path is the adoption surface: it must install and run without
-  # litellm, fastapi, or lightgbm present.
-  minimal-install:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9
-        with:
-          enable-cache: true
-      - run: uv venv
-      - run: uv pip install '.[eval]'
-      - run: |
-          uv run python -c "
-          import sortition.eval, sortition.schema, sortition.sim
-          import importlib.util
-          for forbidden in ('litellm', 'fastapi', 'lightgbm'):
-              assert importlib.util.find_spec(forbidden) is None, forbidden
-          print('eval path imports clean')
-          "
+  ci:
+    uses: gojiplus/py-canon/.github/workflows/reusable-ci.yml@v1
+    with:
+      wheel-import: sortition
+      coverage-floor: 0

@@ -7,7 +7,13 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from sortition.schema import SCHEMA_VERSION, Decision, DecisionRow, ExecutionRow, OutcomeRow
+from sortition.schema import (
+    SCHEMA_VERSION,
+    Decision,
+    DecisionRow,
+    ExecutionRow,
+    OutcomeRow,
+)
 
 
 def _decision(**overrides: object) -> Decision:

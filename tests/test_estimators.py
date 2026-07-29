@@ -105,10 +105,14 @@ class TestDegeneracy:
         epsilon=st.floats(min_value=0.05, max_value=1.0),
         seed=st.integers(min_value=0, max_value=500),
     )
-    def test_ips_equals_sample_mean_on_policy(self, n_arms: int, epsilon: float, seed: int) -> None:
+    def test_ips_equals_sample_mean_on_policy(
+        self, n_arms: int, epsilon: float, seed: int
+    ) -> None:
         problem = make_problem(n_contexts=80, n_arms=n_arms, seed=seed)
         rng = np.random.default_rng(seed)
-        policy = epsilon_greedy_policy(rng.standard_normal((6, n_arms)), epsilon=epsilon)
+        policy = epsilon_greedy_policy(
+            rng.standard_normal((6, n_arms)), epsilon=epsilon
+        )
         logs = sample_logs(problem, policy, 400, seed=seed)
 
         target_probs = policy(logs.contexts, logs.eligible)
@@ -144,7 +148,9 @@ class TestVarianceOrdering:
         target = epsilon_greedy_policy(wt, epsilon=0.1)
         logs = sample_logs(problem, behavior, 20_000, seed=15)
         target_probs = target(logs.contexts, logs.eligible)
-        q_hat = fit_outcome_model(logs.contexts, logs.action, logs.reward, problem.n_arms, seed=0)
+        q_hat = fit_outcome_model(
+            logs.contexts, logs.action, logs.reward, problem.n_arms, seed=0
+        )
 
         common = {
             "action": logs.action,
@@ -181,9 +187,13 @@ class TestSupportViolations:
         )
         assert est.diagnostics.support_violations > 0
         assert not est.trustworthy
-        assert any("outside the logged eligible set" in w for w in est.diagnostics.warnings)
+        assert any(
+            "outside the logged eligible set" in w for w in est.diagnostics.warnings
+        )
 
-    def test_respecting_eligibility_reports_no_violations(self, problem: BanditProblem) -> None:
+    def test_respecting_eligibility_reports_no_violations(
+        self, problem: BanditProblem
+    ) -> None:
         logs = sample_logs(problem, uniform_policy(), 2_000, seed=17)
         target = constant_policy(1)
         est = estimate(
@@ -250,7 +260,9 @@ class TestCrossFitting:
 
         # The mechanism itself: a memorizing model fits its own training rows
         # far better than held-out ones.
-        assert mean_abs_residual(cross_fit=False) < 0.85 * mean_abs_residual(cross_fit=True)
+        assert mean_abs_residual(cross_fit=False) < 0.85 * mean_abs_residual(
+            cross_fit=True
+        )
 
     @pytest.mark.slow
     def test_in_sample_fitting_destroys_interval_coverage(

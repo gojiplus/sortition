@@ -47,9 +47,18 @@ class Interval:
 
     @property
     def width(self) -> float:
+        """Distance between the interval endpoints."""
         return self.high - self.low
 
     def covers(self, value: float) -> bool:
+        """Whether ``value`` lies inside the interval.
+
+        Args:
+            value: The quantity to test, typically a known ground truth.
+
+        Returns:
+            True if the value is within the interval, inclusive.
+        """
         return self.low <= value <= self.high
 
 
@@ -237,4 +246,6 @@ def normal_ci(scores: FloatArray, *, alpha: float = 0.05) -> Interval:
     mean = float(scores.mean())
     se = float(scores.std(ddof=1) / np.sqrt(n))
     z = float(norm.ppf(1.0 - alpha / 2.0))
-    return Interval(low=mean - z * se, high=mean + z * se, level=1.0 - alpha, method="normal")
+    return Interval(
+        low=mean - z * se, high=mean + z * se, level=1.0 - alpha, method="normal"
+    )

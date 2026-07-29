@@ -72,13 +72,19 @@ class _Prepared:
         return self.metric in BOUNDED_METRICS
 
     def probabilities(self, policy: TargetPolicy) -> FloatArray:
-        probs = policy.probabilities(self.data.features, self.data.eligible, self.data.arms)
+        probs = policy.probabilities(
+            self.data.features, self.data.eligible, self.data.arms
+        )
         return probs if self.observed.all() else probs[self.observed]
 
 
-def _prepare(data: EvalArrays, metric: str, estimator: EstimatorName, seed: int) -> _Prepared:
+def _prepare(
+    data: EvalArrays, metric: str, estimator: EstimatorName, seed: int
+) -> _Prepared:
     if metric not in data.metrics:
-        raise ValueError(f"metric {metric!r} is not in the log; available: {sorted(data.metrics)}")
+        raise ValueError(
+            f"metric {metric!r} is not in the log; available: {sorted(data.metrics)}"
+        )
     values = data.metrics[metric]
     observed = ~np.isnan(values)
 
@@ -97,7 +103,9 @@ def _prepare(data: EvalArrays, metric: str, estimator: EstimatorName, seed: int)
     if estimator in ("dm", "dr", "switch_dr", "dr_os"):
         if contexts.shape[1] == 0:
             if estimator == "dm":
-                raise ValueError("the direct method needs numeric features, and this log has none")
+                raise ValueError(
+                    "the direct method needs numeric features, and this log has none"
+                )
             # Without features there is nothing to fit an outcome model on, and
             # a DR estimate with a constant outcome model is IPS with extra steps.
             estimator = "ips"
@@ -163,7 +171,9 @@ def evaluate(
     """Estimate what ``metric`` would have been under ``target``."""
     data = _as_arrays(logs)
     prepared = _prepare(data, metric, estimator, seed)
-    return _estimate_from(prepared, _resolve(target), alpha=alpha, anytime=anytime, seed=seed)
+    return _estimate_from(
+        prepared, _resolve(target), alpha=alpha, anytime=anytime, seed=seed
+    )
 
 
 @dataclass(frozen=True)
@@ -180,18 +190,22 @@ class Comparison:
 
     @property
     def relative_change(self) -> float:
+        """The difference as a fraction of the baseline policy's value."""
         return self.difference / self.a.value if self.a.value else float("nan")
 
     @property
     def significant(self) -> bool:
+        """Whether the interval on the difference excludes zero."""
         low, high = self.difference_interval
         return low > 0.0 or high < 0.0
 
     @property
     def trustworthy(self) -> bool:
+        """Whether both policies have enough overlap to be reported."""
         return self.a.trustworthy and self.b.trustworthy
 
     def __str__(self) -> str:
+        """Render both estimates and the interval on their difference."""
         low, high = self.difference_interval
         verdict = "" if self.significant else "  (not distinguishable from zero)"
         text = (
@@ -202,7 +216,9 @@ class Comparison:
             f"[{low:+.6g}, {high:+.6g}]{verdict}"
         )
         if not self.trustworthy:
-            text += "\n  NOT TRUSTWORTHY -- overlap is insufficient for at least one policy"
+            text += (
+                "\n  NOT TRUSTWORTHY -- overlap is insufficient for at least one policy"
+            )
         return text
 
 
@@ -240,10 +256,16 @@ def compare(
         if metric not in data.metrics:
             continue
         prepared = _prepare(data, metric, estimator, seed)
-        est_a = _estimate_from(prepared, policy_a, alpha=alpha, anytime=False, seed=seed)
-        est_b = _estimate_from(prepared, policy_b, alpha=alpha, anytime=False, seed=seed)
+        est_a = _estimate_from(
+            prepared, policy_a, alpha=alpha, anytime=False, seed=seed
+        )
+        est_b = _estimate_from(
+            prepared, policy_b, alpha=alpha, anytime=False, seed=seed
+        )
 
-        def row_scores(policy: TargetPolicy, prepared: _Prepared = prepared) -> FloatArray | None:
+        def row_scores(
+            policy: TargetPolicy, prepared: _Prepared = prepared
+        ) -> FloatArray | None:
             return scores_for(
                 prepared.estimator,
                 action=prepared.action,
@@ -260,7 +282,12 @@ def compare(
             # SNIPS is a ratio with no per-row score, so the difference is
             # bootstrapped by resampling row indices and recomputing both.
             difference, low, high = _snips_difference(
-                prepared, policy_a, policy_b, alpha=alpha, n_resamples=n_resamples, seed=seed
+                prepared,
+                policy_a,
+                policy_b,
+                alpha=alpha,
+                n_resamples=n_resamples,
+                seed=seed,
             )
         else:
             paired = scores_b - scores_a
@@ -322,7 +349,8 @@ def _snips_difference(
         wa, wb = weights_a[idx], weights_b[idx]
         v = values[idx]
         return np.asarray(
-            (wb * v).sum(axis=-1) / wb.sum(axis=-1) - (wa * v).sum(axis=-1) / wa.sum(axis=-1)
+            (wb * v).sum(axis=-1) / wb.sum(axis=-1)
+            - (wa * v).sum(axis=-1) / wa.sum(axis=-1)
         )
 
     rows = np.arange(prepared.action.shape[0])
@@ -341,7 +369,9 @@ def _snips_difference(
     )
 
 
-def doctor(logs: pl.DataFrame | EvalArrays, target: str | TargetPolicy = "uniform") -> str:
+def doctor(
+    logs: pl.DataFrame | EvalArrays, target: str | TargetPolicy = "uniform"
+) -> str:
     """Report whether a log can support counterfactual claims at all.
 
     Run this before believing any estimate. It answers the prior question -- is
@@ -376,7 +406,9 @@ def doctor(logs: pl.DataFrame | EvalArrays, target: str | TargetPolicy = "unifor
             "policy does and nothing else. Set an exploration floor."
         )
     if data.n_excluded_missing:
-        lines.append(f"note: {data.n_excluded_missing} rows lacked a propensity and were dropped")
+        lines.append(
+            f"note: {data.n_excluded_missing} rows lacked a propensity and were dropped"
+        )
     return "\n".join(lines)
 
 

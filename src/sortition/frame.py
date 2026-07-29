@@ -67,6 +67,7 @@ class EvalArrays:
 
     @property
     def n(self) -> int:
+        """Number of evaluable rows."""
         return int(self.action.shape[0])
 
 
@@ -109,7 +110,9 @@ def _numeric_contexts(features: list[dict[str, Any]]) -> FloatArray:
     shared: set[str] | None = None
     for row in features:
         # bool is deliberately included: tool-required flags are real features.
-        numeric = {k for k, v in (row or {}).items() if isinstance(v, bool | int | float)}
+        numeric = {
+            k for k, v in (row or {}).items() if isinstance(v, bool | int | float)
+        }
         shared = numeric if shared is None else (shared & numeric)
     keys = sorted(shared or ())
     if not keys:
@@ -151,7 +154,9 @@ def to_arrays(
         df = df.filter(ok)
 
     before_missing = df.height
-    df = df.filter(pl.col("propensity").is_not_null() & pl.col("chosen_arm").is_not_null())
+    df = df.filter(
+        pl.col("propensity").is_not_null() & pl.col("chosen_arm").is_not_null()
+    )
     n_missing = before_missing - df.height
     if df.height == 0:
         raise ValueError(

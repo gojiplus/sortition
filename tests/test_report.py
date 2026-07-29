@@ -68,7 +68,9 @@ class TestFrame:
         )
 
     def test_missing_propensity_column_is_a_clear_error(self) -> None:
-        frame = pl.DataFrame({"request_id": ["a"], "chosen_arm": ["x"], "eligible_set": [["x"]]})
+        frame = pl.DataFrame(
+            {"request_id": ["a"], "chosen_arm": ["x"], "eligible_set": [["x"]]}
+        )
         with pytest.raises(ValueError, match="propensity"):
             to_arrays(frame)
 
@@ -106,7 +108,9 @@ class TestEvaluate:
         self, scenario: tuple[BanditProblem, pl.DataFrame]
     ) -> None:
         _, frame = scenario
-        assert evaluate(frame, "uniform", metric="cost_usd").interval.method == "bootstrap"  # type: ignore[union-attr]
+        assert (
+            evaluate(frame, "uniform", metric="cost_usd").interval.method == "bootstrap"
+        )  # type: ignore[union-attr]
         assert evaluate(frame, "uniform", metric="outcome").interval.method == "betting"  # type: ignore[union-attr]
 
     def test_late_arriving_outcomes_are_dropped_not_imputed(
@@ -132,7 +136,9 @@ class TestEvaluate:
         with pytest.raises(ValueError, match="available"):
             evaluate(frame, "uniform", metric="csat")
 
-    def test_unknown_arm_is_rejected(self, scenario: tuple[BanditProblem, pl.DataFrame]) -> None:
+    def test_unknown_arm_is_rejected(
+        self, scenario: tuple[BanditProblem, pl.DataFrame]
+    ) -> None:
         _, frame = scenario
         with pytest.raises(ValueError, match="unknown arm"):
             evaluate(frame, "always:gpt-9", metric="outcome")
@@ -147,7 +153,9 @@ class TestCompare:
         # fell outside its own confidence interval. Both must come from the same
         # per-row scores.
         problem, frame = scenario
-        for result in compare(frame, f"always:{problem.arms[0]}", f"always:{problem.arms[3]}"):
+        for result in compare(
+            frame, f"always:{problem.arms[0]}", f"always:{problem.arms[3]}"
+        ):
             low, high = result.difference_interval
             assert low <= result.difference <= high, result
 
@@ -155,14 +163,23 @@ class TestCompare:
         self, scenario: tuple[BanditProblem, pl.DataFrame]
     ) -> None:
         problem, frame = scenario
-        for result in compare(frame, f"always:{problem.arms[1]}", f"always:{problem.arms[2]}"):
-            assert result.difference == pytest.approx(result.b.value - result.a.value, rel=1e-9)
+        for result in compare(
+            frame, f"always:{problem.arms[1]}", f"always:{problem.arms[2]}"
+        ):
+            assert result.difference == pytest.approx(
+                result.b.value - result.a.value, rel=1e-9
+            )
 
-    def test_recovers_the_true_gap(self, scenario: tuple[BanditProblem, pl.DataFrame]) -> None:
+    def test_recovers_the_true_gap(
+        self, scenario: tuple[BanditProblem, pl.DataFrame]
+    ) -> None:
         problem, frame = scenario
-        results = compare(frame, f"always:{problem.arms[0]}", f"always:{problem.arms[3]}")
+        results = compare(
+            frame, f"always:{problem.arms[0]}", f"always:{problem.arms[3]}"
+        )
         truths = {
-            "outcome": problem.value(constant_policy(3)) - problem.value(constant_policy(0)),
+            "outcome": problem.value(constant_policy(3))
+            - problem.value(constant_policy(0)),
             "cost_usd": problem.cost_value(constant_policy(3))
             - problem.cost_value(constant_policy(0)),
         }
@@ -175,7 +192,9 @@ class TestCompare:
     ) -> None:
         problem, frame = scenario
         # Cheapest against most expensive: a 50x cost gap is not a close call.
-        results = compare(frame, f"always:{problem.arms[0]}", f"always:{problem.arms[3]}")
+        results = compare(
+            frame, f"always:{problem.arms[0]}", f"always:{problem.arms[3]}"
+        )
         assert all(r.significant for r in results)
 
     def test_a_policy_against_itself_shows_no_difference(
@@ -193,7 +212,9 @@ class TestCompare:
         problem, frame = scenario
         rows = to_dicts(compare(frame, "uniform", f"always:{problem.arms[0]}"))
         assert pl.DataFrame(rows).height == len(rows)
-        assert {"metric", "difference", "ci_low", "ci_high", "significant"} <= set(rows[0])
+        assert {"metric", "difference", "ci_low", "ci_high", "significant"} <= set(
+            rows[0]
+        )
 
 
 class TestDoctor:
@@ -224,10 +245,18 @@ class TestTargets:
         assert floored.epsilon == 0.05
         assert floored.name == "always:premium+eps0.05"
 
-    def test_rejects_nonsense(self) -> None:
-        for spec in ("", "always:", "greedy", "always:x+epsabc"):
-            with pytest.raises(ValueError):
-                parse_target(spec)
+    @pytest.mark.parametrize(
+        ("spec", "message"),
+        [
+            ("", "unrecognized target"),
+            ("always:", "names no arm"),
+            ("greedy", "unrecognized target"),
+            ("always:x+epsabc", "could not read an epsilon"),
+        ],
+    )
+    def test_rejects_nonsense(self, spec: str, message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            parse_target(spec)
 
     def test_epsilon_floor_keeps_every_arm_reachable(self) -> None:
         problem = make_problem(n_contexts=50, n_arms=4, seed=7)

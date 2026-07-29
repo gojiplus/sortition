@@ -61,13 +61,19 @@ class Diagnostics:
         )
 
     def explain(self) -> str:
+        """Render the diagnostics as human-readable lines.
+
+        Returns:
+            A multi-line summary, one concern per line.
+        """
         lines = [
             f"n={self.n}  ESS={self.ess:.1f} ({self.ess_fraction:.1%} of n)",
             f"max weight={self.max_weight:.1f}  p99={self.weight_p99:.1f}",
         ]
         if self.support_violations:
             lines.append(
-                f"support violations: {self.support_violations} ({self.support_violation_rate:.1%})"
+                f"support violations: {self.support_violations} "
+                f"({self.support_violation_rate:.1%})"
             )
         if self.n_excluded_leakage:
             lines.append(

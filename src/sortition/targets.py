@@ -43,7 +43,9 @@ class TargetPolicy(Protocol):
 def _uniform_over_eligible(eligible: BoolArray) -> FloatArray:
     counts = eligible.sum(axis=1, keepdims=True)
     if (counts == 0).any():
-        raise ValueError("some rows have an empty eligible set; nothing could have served them")
+        raise ValueError(
+            "some rows have an empty eligible set; nothing could have served them"
+        )
     return np.where(eligible, 1.0 / counts, 0.0)
 
 
@@ -65,6 +67,7 @@ class AlwaysArm:
 
     @property
     def name(self) -> str:
+        """Identifier used in reports."""
         return f"always:{self.arm}"
 
     def probabilities(
@@ -73,6 +76,19 @@ class AlwaysArm:
         eligible: BoolArray,
         arms: tuple[str, ...],
     ) -> FloatArray:
+        """Action probabilities for each logged request.
+
+        Args:
+            features: Per-row feature dicts as logged.
+            eligible: Boolean mask of arms surviving the hard filter.
+            arms: The arm universe, in index order.
+
+        Returns:
+            An ``(n, len(arms))`` array whose rows sum to 1.
+
+        Raises:
+            ValueError: If ``self.arm`` is not in the arm universe.
+        """
         if self.arm not in arms:
             raise ValueError(f"unknown arm {self.arm!r}; the log contains {list(arms)}")
         index = arms.index(self.arm)
@@ -96,6 +112,16 @@ class Uniform:
         eligible: BoolArray,
         arms: tuple[str, ...],
     ) -> FloatArray:
+        """Action probabilities for each logged request.
+
+        Args:
+            features: Per-row feature dicts as logged.
+            eligible: Boolean mask of arms surviving the hard filter.
+            arms: The arm universe, in index order.
+
+        Returns:
+            An ``(n, len(arms))`` array whose rows sum to 1.
+        """
         return _uniform_over_eligible(eligible)
 
 
@@ -114,6 +140,7 @@ class Mixture:
 
     @property
     def name(self) -> str:
+        """Identifier used in reports."""
         return f"mix({self.base.name},{self.other.name},{self.weight:g})"
 
     def probabilities(
@@ -122,6 +149,19 @@ class Mixture:
         eligible: BoolArray,
         arms: tuple[str, ...],
     ) -> FloatArray:
+        """Action probabilities for each logged request.
+
+        Args:
+            features: Per-row feature dicts as logged.
+            eligible: Boolean mask of arms surviving the hard filter.
+            arms: The arm universe, in index order.
+
+        Returns:
+            An ``(n, len(arms))`` array whose rows sum to 1.
+
+        Raises:
+            ValueError: If ``weight`` is outside [0, 1].
+        """
         if not 0.0 <= self.weight <= 1.0:
             raise ValueError(f"weight must be in [0, 1], got {self.weight}")
         a = self.base.probabilities(features, eligible, arms)
@@ -143,6 +183,7 @@ class EpsilonFloor:
 
     @property
     def name(self) -> str:
+        """Identifier used in reports."""
         return f"{self.inner.name}+eps{self.epsilon:g}"
 
     def probabilities(
@@ -151,11 +192,26 @@ class EpsilonFloor:
         eligible: BoolArray,
         arms: tuple[str, ...],
     ) -> FloatArray:
+        """Action probabilities for each logged request.
+
+        Args:
+            features: Per-row feature dicts as logged.
+            eligible: Boolean mask of arms surviving the hard filter.
+            arms: The arm universe, in index order.
+
+        Returns:
+            An ``(n, len(arms))`` array whose rows sum to 1.
+
+        Raises:
+            ValueError: If ``epsilon`` is outside [0, 1].
+        """
         if not 0.0 <= self.epsilon <= 1.0:
             raise ValueError(f"epsilon must be in [0, 1], got {self.epsilon}")
         greedy = self.inner.probabilities(features, eligible, arms)
         explore = _uniform_over_eligible(eligible)
-        return np.asarray((1.0 - self.epsilon) * greedy + self.epsilon * explore, dtype=np.float64)
+        return np.asarray(
+            (1.0 - self.epsilon) * greedy + self.epsilon * explore, dtype=np.float64
+        )
 
 
 def parse_target(spec: str) -> TargetPolicy:
