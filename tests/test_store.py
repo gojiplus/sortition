@@ -17,7 +17,7 @@ import sys
 import textwrap
 import threading
 import time
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -217,12 +217,15 @@ class TestReadPath:
 
     def test_date_bounds_select_partitions(self, store: LogStore) -> None:
         try:
-            today = date.today()
+            today = datetime.now(UTC).date()
             assert store.read(DECISIONS, since=today).height == 30
-            # Everything was written today, so a window that ends yesterday
-            # must return nothing rather than everything.
-            assert store.read(DECISIONS, until=today - timedelta(days=1)).height == 0
             assert store.read(DECISIONS, since=today - timedelta(days=7)).height == 30
+            # A window that closed well before today must return nothing. The
+            # bound is a week back rather than a day: read() deliberately widens
+            # the partition filter by a day on each side to survive a caller
+            # passing a local date against UTC-stamped partitions, so a
+            # yesterday bound legitimately still reaches today.
+            assert store.read(DECISIONS, until=today - timedelta(days=7)).height == 0
         finally:
             store.close()
 
