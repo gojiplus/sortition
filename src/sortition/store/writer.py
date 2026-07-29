@@ -1,144 +1,237 @@
-"""Append-only parquet, in two tables that are joined at read time.
+"""Reading routing logs back, and the store that ties writing to reading.
 
-Decisions and outcomes live apart because they arrive apart. A thumbs-up lands
-in seconds, a resolution flag or CSAT score in hours, and an upsert into the
-decision row would make a historical estimate irreproducible: re-running last
-month's report would silently give a different answer than it did last month.
+Writes go through a :class:`~sortition.store.sink.Sink`; this module owns the
+query side.
 
-Parquet has no true append, so each flush writes a new part file and readers glob
-the directory. That is the standard partitioned-dataset pattern, and it means a
-crashed process loses at most one buffer rather than corrupting the log.
+Reads go through duckdb rather than concatenating every parquet file. The dataset
+is partitioned by date, so ``since``/``until`` become partition pruning: asking
+about last week reads last week, not the whole history. The previous
+implementation globbed and concatenated every part ever written, which was fine
+for a test fixture and would not survive a month of production traffic.
+
+Decisions and outcomes stay separate tables, joined at read time. They arrive
+apart -- a thumbs-up in seconds, a resolution flag in hours -- and mutating a
+decision row when its outcome lands would make a historical estimate
+irreproducible: re-running last month's report would quietly give a different
+answer than it did last month.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
-import threading
-import uuid
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from sortition.store.sink import DECISIONS, OUTCOMES, ParquetSink, Sink
 
 if TYPE_CHECKING:
     import polars as pl
 
 logger = logging.getLogger(__name__)
 
-DECISIONS = "decisions"
-OUTCOMES = "outcomes"
+TimeBound = str | date | datetime | None
+
+
+def _as_date(value: TimeBound) -> str | None:
+    """Normalize a time bound to the ``dt=`` partition format.
+
+    Args:
+        value: A date, datetime, ``YYYY-MM-DD`` string, or None.
+
+    Returns:
+        A ``YYYY-MM-DD`` string, or None when unbounded.
+
+    Raises:
+        ValueError: If a string is not ISO-formatted.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return date.fromisoformat(str(value)[:10]).isoformat()
+
+
+def _pad(day: str | None, days: int) -> str | None:
+    """Widen a partition bound by a day.
+
+    Partitions are stamped in UTC, but callers naturally pass local dates --
+    ``date.today()`` can be a day behind the partition a row landed in. Since
+    the ``dt`` filter is only a coarse pre-filter over directories, widening it
+    by one day on each side costs at most two extra partitions and removes any
+    chance of a timezone edge silently dropping rows. Filter on ``ts`` for an
+    exact window.
+
+    Args:
+        day: A ``YYYY-MM-DD`` bound, or None.
+        days: Offset to apply, negative to widen a lower bound.
+
+    Returns:
+        The widened bound, or None when unbounded.
+    """
+    if day is None:
+        return None
+    return (date.fromisoformat(day) + timedelta(days=days)).isoformat()
+
+
+# One literal query per bound combination. Written out in full rather than
+# assembled from fragments: every value is already a bound parameter, and a
+# constant string is both verifiable by eye and unambiguous to duckdb's
+# partition pruner.
+_READ = "SELECT * FROM read_parquet(?, hive_partitioning = 1, union_by_name = 1)"
+_RANGE_QUERIES: dict[tuple[bool, bool], str] = {
+    (False, False): _READ,
+    (True, False): _READ + " WHERE dt >= ?",
+    (False, True): _READ + " WHERE dt <= ?",
+    (True, True): _READ + " WHERE dt >= ? AND dt <= ?",
+}
 
 
 class LogStore:
-    """Buffers routing rows and flushes them to a partitioned parquet dataset."""
+    """Writes through a sink, reads through duckdb."""
 
-    def __init__(self, directory: str | Path, *, flush_every: int = 200) -> None:
+    def __init__(
+        self,
+        directory: str | Path,
+        *,
+        sink: Sink | None = None,
+        **sink_kwargs: Any,
+    ) -> None:
         """Open a store rooted at ``directory``.
 
         Args:
-            directory: Root of the dataset. Subdirectories are created per table.
-            flush_every: Rows to buffer before writing a part file. Smaller means
-                less data at risk on a crash and more, smaller files.
+            directory: Root of the dataset.
+            sink: Where writes go. Defaults to a :class:`ParquetSink` over the
+                same directory.
+            **sink_kwargs: Passed to the default sink, e.g. ``flush_interval``.
         """
         self.directory = Path(directory)
-        self.flush_every = max(1, flush_every)
-        self._buffers: dict[str, list[dict[str, Any]]] = {DECISIONS: [], OUTCOMES: []}
-        self._lock = threading.Lock()
+        self.sink: Sink = (
+            sink if sink is not None else ParquetSink(directory, **sink_kwargs)
+        )
 
     def write_decision(self, row: dict[str, Any]) -> None:
-        """Append one resolved request.
+        """Record one resolved request.
 
         Args:
             row: A flat log row: the decision, its propensity, and what the
                 gateway actually did.
         """
-        self._append(DECISIONS, row)
+        self.sink.submit(DECISIONS, row)
 
     def write_outcome(self, row: dict[str, Any]) -> None:
-        """Append one outcome, which may arrive long after the decision.
+        """Record one outcome, which may arrive long after the decision.
 
         Args:
             row: A row carrying at least ``request_id``, ``name`` and ``value``.
         """
-        self._append(OUTCOMES, row)
+        self.sink.submit(OUTCOMES, row)
 
-    def _append(self, table: str, row: dict[str, Any]) -> None:
-        with self._lock:
-            buffer = self._buffers[table]
-            buffer.append(row)
-            ready = len(buffer) >= self.flush_every
-        if ready:
-            self.flush(table)
+    def flush(self) -> None:
+        """Write everything buffered, blocking until it is durable."""
+        self.sink.flush()
 
-    def flush(self, table: str | None = None) -> None:
-        """Write buffered rows to disk.
+    def close(self) -> None:
+        """Flush and stop the sink."""
+        self.sink.close()
+
+    # -- read side ---------------------------------------------------------
+
+    def _glob(self, table: str) -> str:
+        return str(self.directory / table / "**" / "*.parquet")
+
+    def has(self, table: str) -> bool:
+        """Whether anything has been written to a table.
 
         Args:
-            table: Flush only this table, or all tables when omitted.
+            table: Which table to check.
+
+        Returns:
+            True if at least one part file exists.
         """
-        for name in (table,) if table else (DECISIONS, OUTCOMES):
-            with self._lock:
-                rows, self._buffers[name] = self._buffers[name], []
-            if rows:
-                self._write_part(name, rows)
+        return any((self.directory / table).glob("**/*.parquet"))
 
-    def _write_part(self, table: str, rows: list[dict[str, Any]]) -> None:
-        import polars as pl
-
-        target = self.directory / table
-        target.mkdir(parents=True, exist_ok=True)
-        # A unique name per part: several processes may write the same dataset,
-        # and a collision would silently drop one of their logs.
-        path = target / f"part-{os.getpid()}-{uuid.uuid4().hex[:12]}.parquet"
-        pl.DataFrame(rows, infer_schema_length=None).write_parquet(path)
-        logger.debug("wrote %d rows to %s", len(rows), path)
-
-    def read(self, table: str = DECISIONS) -> pl.DataFrame:
-        """Read a table back, flushing anything still buffered.
+    def read(
+        self,
+        table: str = DECISIONS,
+        *,
+        since: TimeBound = None,
+        until: TimeBound = None,
+    ) -> pl.DataFrame:
+        """Read one table, pruned to a date range.
 
         Args:
             table: Which table to read.
+            since: Inclusive lower bound on the partition date.
+            until: Inclusive upper bound on the partition date.
 
         Returns:
-            Every row written so far.
+            The matching rows.
 
         Raises:
             FileNotFoundError: If nothing has ever been written to the table.
         """
-        import polars as pl
+        import duckdb
 
-        self.flush(table)
-        target = self.directory / table
-        parts = sorted(target.glob("*.parquet"))
-        if not parts:
-            raise FileNotFoundError(f"no {table} written under {target}")
-        return pl.concat([pl.read_parquet(p) for p in parts], how="diagonal_relaxed")
+        self.flush()
+        if not self.has(table):
+            raise FileNotFoundError(
+                f"no {table} written under {self.directory / table}"
+            )
 
-    def load(self) -> pl.DataFrame:
+        # hive_partitioning exposes dt as a column, which is what lets duckdb
+        # skip whole directories instead of reading and filtering them.
+        # The four queries are written out as constants rather than assembled
+        # from fragments: the bounds are already parameterized, and a literal
+        # query is easier to confirm by eye than a string built at runtime.
+        low, high = _pad(_as_date(since), -1), _pad(_as_date(until), +1)
+        sql = _RANGE_QUERIES[(low is not None, high is not None)]
+        params = [b for b in (low, high) if b is not None]
+        with duckdb.connect() as conn:
+            return conn.execute(sql, [self._glob(table), *params]).pl()
+
+    def load(
+        self,
+        *,
+        since: TimeBound = None,
+        until: TimeBound = None,
+    ) -> pl.DataFrame:
         """Read decisions with any outcomes joined on.
 
-        Outcomes are pivoted so each named outcome becomes its own column, which
-        is the shape ``sortition.frame.to_arrays`` expects. Requests whose
-        outcome has not arrived keep a null, and the estimators drop those rows
-        for that metric rather than imputing them.
+        Each named outcome becomes its own column, which is the shape
+        ``sortition.frame.to_arrays`` reads. A request whose outcome has not
+        arrived keeps a null, and the estimators drop it for that metric rather
+        than imputing a value.
+
+        Args:
+            since: Inclusive lower bound on the partition date.
+            until: Inclusive upper bound on the partition date.
 
         Returns:
             The joined log table.
         """
-        decisions = self.read(DECISIONS)
-        try:
-            outcomes = self.read(OUTCOMES)
-        except FileNotFoundError:
+        decisions = self.read(DECISIONS, since=since, until=until)
+        if not self.has(OUTCOMES):
             return decisions
 
-        # Last write wins for a given (request_id, name): outcomes are corrected
-        # more often than they are duplicated.
-        latest = outcomes.group_by(["request_id", "name"]).last()
+        # Outcomes are not date-pruned: one that arrives on Tuesday may belong to
+        # Monday's request, and pruning them to the decision window would drop
+        # exactly the late labels this schema exists to accommodate.
+        outcomes = self.read(OUTCOMES)
+        if outcomes.is_empty():
+            return decisions
+
+        # Last write wins per (request_id, name): outcomes get corrected more
+        # often than they get duplicated.
+        latest = outcomes.sort("ts").group_by(["request_id", "name"]).last()
         wide = latest.pivot(on="name", index="request_id", values="value")
         return decisions.join(wide, on="request_id", how="left")
 
     def __enter__(self) -> LogStore:
-        """Enter a context that flushes on exit.
+        """Enter a context that closes the sink on exit.
 
         Returns:
             This store.
@@ -146,8 +239,8 @@ class LogStore:
         return self
 
     def __exit__(self, *exc: object) -> None:
-        """Flush buffered rows when leaving the context."""
-        self.flush()
+        """Flush and stop the sink."""
+        self.close()
 
 
 def json_safe(value: Any) -> Any:
