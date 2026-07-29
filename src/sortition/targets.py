@@ -198,10 +198,8 @@ class EpsilonFloor:
             arms: The arm universe, in index order.
 
         Returns:
-            An ``(n, len(arms))`` array whose rows sum to 1.
-
-        Raises:
-            ValueError: If ``epsilon`` is outside [0, 1].
+            An ``(n, len(arms))`` array whose rows sum to 1. Validation of
+            ``epsilon`` happens in the shared implementation.
         """
         greedy = self.inner.probabilities(features, eligible, arms)
         return apply_epsilon_floor(greedy, eligible, self.epsilon)

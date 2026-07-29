@@ -13,6 +13,7 @@ index means the same thing on every row.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -95,6 +96,31 @@ def arm_universe(df: pl.DataFrame) -> tuple[str, ...]:
     if not arms:
         raise ValueError("no arms found in the log")
     return tuple(sorted(arms))
+
+
+def _as_mapping(value: Any) -> dict[str, Any]:
+    """Coerce a logged features cell into a mapping.
+
+    Parquet holds a nested feature dict either as a struct or, more often once
+    it has been through a gateway callback, as a JSON string. Both shapes are
+    real logs, so both are read rather than requiring the writer to have picked
+    the one this reader prefers.
+
+    Args:
+        value: The cell as parquet returned it.
+
+    Returns:
+        The features as a dict, empty when the cell is null or unparsable.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _numeric_contexts(features: list[dict[str, Any]]) -> FloatArray:
@@ -183,7 +209,7 @@ def to_arrays(
     eligible[np.arange(df.height), action] = True
 
     features = (
-        [r or {} for r in df.get_column("features").to_list()]
+        [_as_mapping(r) for r in df.get_column("features").to_list()]
         if "features" in df.columns
         else [{} for _ in range(df.height)]
     )
