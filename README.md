@@ -33,7 +33,21 @@ sortition doctor logs.parquet --check
 
 # 5. Report on it.
 sortition report logs.parquet --baseline policy:current.json --out report.md
+sortition dashboard logs.parquet --out dashboard.html
 ```
+
+Or skip writing the rules and learn them:
+
+```bash
+sortition train logs.parquet -o learned.json --holdout 0.3
+# trained learned-bf2d5e3d9577 on 20712 rows
+# on 8842 held-out rows:
+#   what actually happened: 0.465
+#   this policy would have: 0.711  [0.677, 0.744]
+```
+
+The holdout is not optional politeness: a policy chosen to look good on a set of
+logs will look good on those logs.
 
 Step 2 is the one no other open-source router can do.
 
@@ -113,8 +127,9 @@ Two consequences run through the design:
 |---|---|
 | `sortition.eval` | IPS, SNIPS, DM, DR, switch-DR, shrinkage-DR; cross-fitted outcome models; Waudby-Smith–Ramdas betting intervals for bounded outcomes, bootstrap for cost and latency; overlap and support diagnostics that refuse rather than guess |
 | `sortition.decide` | rules policies, epsilon-greedy with exact propensities, Thompson with Monte Carlo ones, versioned artifacts, hot reload |
+| `sortition.train` | a boosted-tree policy fitted from logs, deployable as the same artifact a rules table produces |
 | `sortition.integrations` | LiteLLM routing plugin and logging callback |
-| `sortition.store` | durable, non-blocking, date-partitioned parquet; duckdb read path |
+| `sortition.store` | durable, non-blocking, date-partitioned parquet; duckdb read path; S3 and Postgres sinks |
 | `sortition.health` | is this log still able to justify the router? |
 | `sortition.metrics` | Prometheus, or nothing at all if it isn't installed |
 | `sortition.sim` | synthetic bandits with exactly known policy values — the oracle the estimators are tested against |
@@ -124,6 +139,8 @@ Two consequences run through the design:
 ```bash
 pip install 'sortition[eval]'          # estimators only; no gateway dependency
 pip install 'sortition[eval,litellm]'  # + the routing plugin and log adapter
+pip install 'sortition[train]'          # + the learned policy
+pip install 'sortition[s3]'             # + object-storage sink
 pip install 'sortition[all]'
 ```
 

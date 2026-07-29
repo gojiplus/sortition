@@ -397,6 +397,47 @@ def train(
         )
 
 
+@app.command()
+def dashboard(
+    log: Annotated[Path, typer.Argument(help="Log file to visualise.")],
+    out: Annotated[
+        Path, typer.Option("--out", "-o", help="HTML file to write.")
+    ] = Path("dashboard.html"),
+    baseline: Annotated[
+        list[str] | None, typer.Option(help="Policy to compare against. Repeatable.")
+    ] = None,
+    metrics: Annotated[str, typer.Option(help="Comma-separated metric columns.")] = (
+        "outcome,cost_usd"
+    ),
+    since: Annotated[str | None, typer.Option(help="Window, e.g. 7d, 24h, 2w.")] = None,
+) -> None:
+    """Write a self-contained HTML dashboard: one file, no server, no CDN."""
+    import polars as pl
+
+    from sortition.dashboard import write as write_dashboard
+    from sortition.reporting import build, parse_since
+
+    frame = _load(log)
+    window = "all time"
+    if since:
+        cutoff = parse_since(since)
+        window = f"last {since}"
+        if "ts" in frame.columns:  # type: ignore[union-attr]
+            frame = frame.filter(pl.col("ts") >= cutoff)  # type: ignore[union-attr]
+            if frame.height == 0:  # type: ignore[union-attr]
+                typer.echo(f"no requests in the last {since}.")
+                raise typer.Exit(code=0)
+
+    result = build(
+        frame,  # type: ignore[arg-type]
+        baselines=tuple(baseline) if baseline else ("uniform",),
+        metrics=tuple(m.strip() for m in metrics.split(",") if m.strip()),
+        window=window,
+    )
+    write_dashboard(result, frame, out)  # type: ignore[arg-type]
+    typer.echo(f"wrote {out}")
+
+
 def main() -> None:
     """Entry point for the ``sortition`` console script."""
     app()

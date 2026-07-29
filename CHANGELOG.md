@@ -6,7 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `S3Sink` and `PostgresSink`, behind the `s3` and `postgres` extras. Both
+  inherit the durability contract from a shared `BufferedSink` rather than
+  restating it.
+- `sortition.train`: a boosted-tree policy fitted from logs, emitted as a
+  `kind="tree"` artifact so it deploys and is evaluated exactly like a rules
+  table. `sortition train` reports the held-out comparison and says when the
+  candidate is not measurably better.
+- `sortition.features`: the feature vectoriser, shared by training and the
+  decision path so a deployed policy scores as it was fitted.
+- `sortition dashboard`: a self-contained HTML page, no server and no CDN.
 
 ## [0.1.0] - 2026-07-29
 
