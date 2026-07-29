@@ -58,9 +58,9 @@ cli = ["sortition[eval]", "typer>=0.12", "rich>=13.0"]
 all = ["sortition[eval,train,litellm,cli,metrics]"]
 
 [project.urls]
-Homepage = "https://github.com/soodoku/sortition"
-Repository = "https://github.com/soodoku/sortition"
-Issues = "https://github.com/soodoku/sortition/issues"
+Homepage = "https://github.com/gojiplus/sortition"
+Repository = "https://github.com/gojiplus/sortition"
+Issues = "https://github.com/gojiplus/sortition/issues"
 
 [project.scripts]
 sortition = "sortition.cli:main"
