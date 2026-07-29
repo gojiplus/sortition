@@ -31,6 +31,8 @@ classifiers = [
 dependencies = [
     "numpy>=1.26",
     "pydantic>=2.9",
+    # Rule tables are the documented interface for the day-one policy.
+    "pyyaml>=6.0",
 ]
 dynamic = ["version"]
 
@@ -85,7 +87,9 @@ ignore = ["D203", "D213", "N803", "N806"]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D"]
+# S311: seeded `random.Random` is the subject of the sampler tests, not a
+# cryptographic mistake -- reproducibility is exactly what is being asserted.
+"tests/**" = ["S101", "D", "S311"]
 "docs/**" = ["D"]
 
 [tool.pytest.ini_options]

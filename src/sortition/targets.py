@@ -17,8 +17,15 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 from numpy.typing import NDArray
 
+from sortition.exploration import apply_epsilon_floor, uniform_over_eligible
+
 FloatArray = NDArray[np.float64]
 BoolArray = NDArray[np.bool_]
+
+# Aliased rather than reimplemented: the evaluation side and the decision side
+# must compute exploration probabilities with one formula, or a policy stops
+# evaluating as itself. See sortition.exploration.
+_uniform_over_eligible = uniform_over_eligible
 
 
 @runtime_checkable
@@ -38,15 +45,6 @@ class TargetPolicy(Protocol):
     ) -> FloatArray:
         """Return an ``(n, len(arms))`` array whose rows sum to 1."""
         ...
-
-
-def _uniform_over_eligible(eligible: BoolArray) -> FloatArray:
-    counts = eligible.sum(axis=1, keepdims=True)
-    if (counts == 0).any():
-        raise ValueError(
-            "some rows have an empty eligible set; nothing could have served them"
-        )
-    return np.where(eligible, 1.0 / counts, 0.0)
 
 
 @dataclass(frozen=True)
@@ -205,13 +203,8 @@ class EpsilonFloor:
         Raises:
             ValueError: If ``epsilon`` is outside [0, 1].
         """
-        if not 0.0 <= self.epsilon <= 1.0:
-            raise ValueError(f"epsilon must be in [0, 1], got {self.epsilon}")
         greedy = self.inner.probabilities(features, eligible, arms)
-        explore = _uniform_over_eligible(eligible)
-        return np.asarray(
-            (1.0 - self.epsilon) * greedy + self.epsilon * explore, dtype=np.float64
-        )
+        return apply_epsilon_floor(greedy, eligible, self.epsilon)
 
 
 def parse_target(spec: str) -> TargetPolicy:
