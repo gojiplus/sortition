@@ -326,6 +326,77 @@ def report(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def train(
+    log: Annotated[Path, typer.Argument(help="Log file to learn from.")],
+    out: Annotated[Path, typer.Option("--out", "-o", help="Artifact to write.")] = Path(
+        "learned.json"
+    ),
+    metric: Annotated[str, typer.Option(help="Outcome column to predict.")] = "outcome",
+    cost_weight: Annotated[
+        float, typer.Option(help="How much predicted quality to trade for price.")
+    ] = 0.0,
+    epsilon: Annotated[
+        float, typer.Option(help="Exploration floor for the trained policy.")
+    ] = 0.05,
+    holdout: Annotated[
+        float, typer.Option(help="Share of rows kept back to evaluate on.")
+    ] = 0.3,
+    name: Annotated[str | None, typer.Option(help="Label for the artifact.")] = None,
+    seed: Annotated[int, typer.Option()] = 0,
+) -> None:
+    """Fit a policy from logs and report whether it beats what produced them."""
+    from sortition.eval import evaluate
+    from sortition.targets import PolicyTarget
+    from sortition.train import train as fit
+    from sortition.train import train_test_split
+
+    frame = _load(log)
+    train_rows, held_out = train_test_split(frame, holdout=holdout, seed=seed)  # type: ignore[arg-type]
+
+    result = fit(
+        train_rows,
+        metric=metric,
+        cost_weight=cost_weight,
+        epsilon=epsilon,
+        name=name,
+        seed=seed,
+    )
+    from sortition.decide.artifact import save as save_artifact
+
+    save_artifact(result.artifact, out)
+    typer.echo(f"trained {result.artifact.policy_version} on {result.n_rows} rows")
+    typer.echo(f"features: {', '.join(result.feature_spec)}")
+    typer.echo(f"wrote {out}")
+
+    # Measured on rows the policy has not seen. Training and evaluating on the
+    # same logs would flatter any candidate, which is the whole reason for the
+    # holdout.
+    target = PolicyTarget(
+        policy=result.policy, epsilon=epsilon, name=result.artifact.policy_version
+    )
+    estimate = evaluate(held_out, target, metric=metric, estimator="dr")
+    observed = float(held_out.get_column(metric).drop_nulls().to_numpy().mean())
+
+    typer.echo("")
+    typer.echo(f"on {held_out.height} held-out rows:")
+    typer.echo(f"  what actually happened: {observed:.6g}")
+    typer.echo(f"  this policy would have: {estimate.value:.6g}", nl=False)
+    if estimate.interval is not None:
+        typer.echo(f"  [{estimate.interval.low:.6g}, {estimate.interval.high:.6g}]")
+    else:
+        typer.echo("")
+
+    if not estimate.trustworthy:
+        typer.echo("\nNOT TRUSTWORTHY -- the held-out log cannot support this estimate")
+        raise typer.Exit(code=1)
+    if estimate.interval is not None and estimate.interval.low <= observed:
+        typer.echo(
+            "\nThe interval overlaps what already happened, so this policy is "
+            "not measurably better. Deploying it would be a coin flip."
+        )
+
+
 def main() -> None:
     """Entry point for the ``sortition`` console script."""
     app()

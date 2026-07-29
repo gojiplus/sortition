@@ -70,16 +70,20 @@ class Sink(Protocol):
         ...
 
 
-class ParquetSink:
-    """Buffers rows and writes date-partitioned parquet from a writer thread.
+class BufferedSink:
+    """Buffering, backpressure and a writer thread, shared by every sink.
 
-    Parts are named per process and per flush, so several proxy replicas can
-    write one dataset without coordinating.
+    Subclasses implement :meth:`_write_part` and inherit the durability
+    contract: ``submit`` never blocks or raises, a flush happens on whichever
+    comes first of an interval or a full buffer, and overflow is dropped and
+    counted rather than growing without bound.
+
+    The contract exists once here because three copies of it would drift, and
+    the failure mode of a drifted copy is silent log loss.
     """
 
     def __init__(
         self,
-        directory: str | Path,
         *,
         flush_interval: float = DEFAULT_FLUSH_INTERVAL,
         flush_every: int = DEFAULT_FLUSH_EVERY,
@@ -87,10 +91,9 @@ class ParquetSink:
         on_write: Callable[[str, int], None] | None = None,
         on_drop: Callable[[str, int], None] | None = None,
     ) -> None:
-        """Open a sink rooted at ``directory``.
+        """Configure buffering and the writer thread.
 
         Args:
-            directory: Root of the dataset; one subdirectory per table.
             flush_interval: Seconds between periodic flushes. This is what bounds
                 data loss on a hard kill, so it is the number to tune.
             flush_every: Buffered rows that trigger an immediate flush.
@@ -99,7 +102,6 @@ class ParquetSink:
             on_write: Called with (table, n_rows) after a successful write.
             on_drop: Called with (table, n_rows) when rows are dropped.
         """
-        self.directory = Path(directory)
         self.flush_interval = max(0.1, flush_interval)
         self.flush_every = max(1, flush_every)
         self.max_buffered = max(1, max_buffered)
@@ -221,19 +223,16 @@ class ParquetSink:
                 )
 
     def _write_part(self, table: str, rows: list[dict[str, Any]]) -> None:
-        import polars as pl
+        """Persist one batch. Subclasses implement this; it runs on the thread.
 
-        # Partitioned by date so a query for last week does not read last year.
-        day = datetime.now(UTC).strftime("%Y-%m-%d")
-        target = self.directory / table / f"dt={day}"
-        target.mkdir(parents=True, exist_ok=True)
-        name = f"part-{os.getpid()}-{uuid.uuid4().hex[:12]}.parquet"
-        # Written beside the final name and renamed, so a reader globbing the
-        # directory can never observe a half-written file.
-        tmp = target / f".{name}.tmp"
-        pl.DataFrame(rows, infer_schema_length=None).write_parquet(tmp)
-        tmp.rename(target / name)
-        logger.debug("wrote %d %s rows to %s", len(rows), table, target / name)
+        Args:
+            table: Which table the rows belong to.
+            rows: The batch to persist.
+
+        Raises:
+            NotImplementedError: Always, on the base class.
+        """
+        raise NotImplementedError
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -266,7 +265,7 @@ class ParquetSink:
 
         await asyncio.to_thread(self.close)
 
-    def __enter__(self) -> ParquetSink:
+    def __enter__(self) -> BufferedSink:
         """Enter a context that closes on exit.
 
         Returns:
@@ -277,3 +276,197 @@ class ParquetSink:
     def __exit__(self, *exc: object) -> None:
         """Flush and stop the writer thread."""
         self.close()
+
+
+class ParquetSink(BufferedSink):
+    """Date-partitioned parquet on a local filesystem. The default.
+
+    Parts are named per process and per flush, so several proxy replicas can
+    write one dataset without coordinating.
+    """
+
+    def __init__(self, directory: str | Path, **kwargs: Any) -> None:
+        """Open a sink rooted at ``directory``.
+
+        Args:
+            directory: Root of the dataset; one subdirectory per table.
+            **kwargs: Buffering options, see :class:`BufferedSink`.
+        """
+        super().__init__(**kwargs)
+        self.directory = Path(directory)
+
+    def _write_part(self, table: str, rows: list[dict[str, Any]]) -> None:
+        """Write one parquet part.
+
+        Args:
+            table: Which table the rows belong to.
+            rows: The batch to persist.
+        """
+        import polars as pl
+
+        # Partitioned by date so a query for last week does not read last year.
+        day = datetime.now(UTC).strftime("%Y-%m-%d")
+        target = self.directory / table / f"dt={day}"
+        target.mkdir(parents=True, exist_ok=True)
+        name = f"part-{os.getpid()}-{uuid.uuid4().hex[:12]}.parquet"
+        # Written beside the final name and renamed, so a reader globbing the
+        # directory can never observe a half-written file.
+        tmp = target / f".{name}.tmp"
+        pl.DataFrame(rows, infer_schema_length=None).write_parquet(tmp)
+        tmp.rename(target / name)
+        logger.debug("wrote %d %s rows to %s", len(rows), table, target / name)
+
+
+class S3Sink(BufferedSink):
+    """Date-partitioned parquet in object storage.
+
+    What a fleet needs: several proxy replicas writing one dataset that outlives
+    any of them. Keys mirror the local layout, so the same duckdb read path works
+    against ``s3://bucket/prefix/decisions/**/*.parquet``.
+
+    Requires the ``s3`` extra. Credentials come from the environment via the
+    usual boto3 chain -- sortition holds none of its own, here as everywhere.
+    """
+
+    def __init__(
+        self,
+        bucket: str,
+        prefix: str = "",
+        *,
+        client: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        """Open a sink writing under ``s3://bucket/prefix``.
+
+        Args:
+            bucket: Destination bucket.
+            prefix: Key prefix, typically an environment name.
+            client: A preconfigured boto3 S3 client. Built from the default
+                session when omitted; injectable for tests.
+            **kwargs: Buffering options, see :class:`BufferedSink`.
+        """
+        super().__init__(**kwargs)
+        self.bucket = bucket
+        self.prefix = prefix.strip("/")
+        self._client = client
+
+    @property
+    def client(self) -> Any:
+        """The S3 client, created on first use.
+
+        Returns:
+            A boto3 S3 client.
+        """
+        if self._client is None:
+            import boto3
+
+            self._client = boto3.client("s3")
+        return self._client
+
+    def _key(self, table: str) -> str:
+        day = datetime.now(UTC).strftime("%Y-%m-%d")
+        name = f"part-{os.getpid()}-{uuid.uuid4().hex[:12]}.parquet"
+        parts = [p for p in (self.prefix, table, f"dt={day}", name) if p]
+        return "/".join(parts)
+
+    def _write_part(self, table: str, rows: list[dict[str, Any]]) -> None:
+        """Upload one parquet part.
+
+        Args:
+            table: Which table the rows belong to.
+            rows: The batch to persist.
+        """
+        import io
+
+        import polars as pl
+
+        # Serialized in memory and uploaded in one call: an object appears whole
+        # or not at all, so a reader never sees a partial part.
+        buffer = io.BytesIO()
+        pl.DataFrame(rows, infer_schema_length=None).write_parquet(buffer)
+        key = self._key(table)
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=buffer.getvalue())
+        logger.debug(
+            "wrote %d %s rows to s3://%s/%s", len(rows), table, self.bucket, key
+        )
+
+
+class PostgresSink(BufferedSink):
+    """Rows in Postgres, for deployments that already run one.
+
+    Useful when routing logs want to sit beside the spend logs a LiteLLM proxy
+    is already writing, and when someone would rather query them with SQL than
+    reach for parquet.
+
+    Nested values -- the feature dict, the eligible set -- are stored as JSONB,
+    and ``sortition.frame`` already reads a features column that arrives as
+    JSON, so nothing downstream changes.
+
+    Requires the ``postgres`` extra.
+    """
+
+    DDL = """
+    CREATE TABLE IF NOT EXISTS {table} (
+        id BIGSERIAL PRIMARY KEY,
+        written_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        row JSONB NOT NULL
+    )
+    """
+
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        schema: str = "sortition",
+        connect: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        """Open a sink writing to Postgres.
+
+        Args:
+            dsn: libpq connection string.
+            schema: Schema holding the tables. Created if absent.
+            connect: Callable returning a DB-API connection. Injectable for
+                tests; defaults to ``psycopg.connect``.
+            **kwargs: Buffering options, see :class:`BufferedSink`.
+        """
+        super().__init__(**kwargs)
+        self.dsn = dsn
+        self.schema = schema
+        self._connect = connect
+        self._ready: set[str] = set()
+
+    def _connection(self) -> Any:
+        if self._connect is not None:
+            return self._connect(self.dsn)
+        import psycopg
+
+        return psycopg.connect(self.dsn)
+
+    def _ensure(self, cursor: Any, table: str) -> str:
+        qualified = f"{self.schema}.{table}"
+        if table not in self._ready:
+            cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
+            cursor.execute(self.DDL.format(table=qualified))
+            self._ready.add(table)
+        return qualified
+
+    def _write_part(self, table: str, rows: list[dict[str, Any]]) -> None:
+        """Insert one batch.
+
+        Args:
+            table: Which table the rows belong to.
+            rows: The batch to persist.
+        """
+        import json
+
+        # One transaction per batch: the batch lands whole or not at all, which
+        # matches the parquet sink's all-or-nothing part file.
+        with self._connection() as conn, conn.cursor() as cursor:
+            qualified = self._ensure(cursor, table)
+            cursor.executemany(
+                f"INSERT INTO {qualified} (row) VALUES (%s)",  # noqa: S608
+                [(json.dumps(row, default=str),) for row in rows],
+            )
+            conn.commit()
+        logger.debug("wrote %d %s rows to %s", len(rows), table, table)

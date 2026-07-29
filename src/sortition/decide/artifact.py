@@ -33,6 +33,7 @@ from sortition.decide.policy import (
     WeightedPolicy,
 )
 from sortition.decide.rules import RulesPolicy
+from sortition.decide.tree import TreePolicy
 from sortition.schema import Decision, PolicyArtifact
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,19 @@ def _payload_of(policy: Policy) -> tuple[str, dict[str, Any], tuple[str, ...]]:
                     }
                     for rule in policy.rules
                 ],
+            },
+            policy.arms,
+        )
+    if isinstance(policy, TreePolicy):
+        return (
+            "tree",
+            {
+                "booster_text": policy.booster_text,
+                "feature_spec": list(policy.feature_spec),
+                "arms": list(policy.arms),
+                "cost_usd": dict(policy.cost_usd),
+                "cost_weight": policy.cost_weight,
+                "name": policy.name,
             },
             policy.arms,
         )
@@ -111,6 +125,15 @@ def _policy_from(kind: str, payload: dict[str, Any]) -> Policy:
     """
     if kind == "rules":
         return RulesPolicy.from_dict(payload)
+    if kind == "tree":
+        return TreePolicy(
+            booster_text=payload["booster_text"],
+            feature_spec=tuple(payload["feature_spec"]),
+            arms=tuple(payload["arms"]),
+            cost_usd=dict(payload.get("cost_usd") or {}),
+            cost_weight=float(payload.get("cost_weight", 0.0)),
+            name=payload.get("name", "tree"),
+        )
     if kind == "constant":
         return ConstantPolicy(payload["arm"])
     if kind == "weighted":

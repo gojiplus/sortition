@@ -20,6 +20,9 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from numpy.typing import NDArray
 
+from sortition.features import infer_spec
+from sortition.features import matrix as build_matrix
+
 if TYPE_CHECKING:
     import polars as pl
 
@@ -126,27 +129,18 @@ def _as_mapping(value: Any) -> dict[str, Any]:
 def _numeric_contexts(features: list[dict[str, Any]]) -> FloatArray:
     """Stack whatever numeric features every row shares.
 
-    Keys present on some rows but not others are skipped rather than imputed:
-    a silently zero-filled feature is worse than a missing one, because the
-    outcome model treats it as a real measurement.
-    """
-    if not features:
-        return np.zeros((0, 0), dtype=np.float64)
+    Delegates to ``sortition.features`` so a matrix built here and a vector
+    built by a deployed policy come from one implementation. If they diverged, a
+    trained policy would score live requests differently than it was fitted, and
+    nothing in its output would say so.
 
-    shared: set[str] | None = None
-    for row in features:
-        # bool is deliberately included: tool-required flags are real features.
-        numeric = {
-            k for k, v in (row or {}).items() if isinstance(v, bool | int | float)
-        }
-        shared = numeric if shared is None else (shared & numeric)
-    keys = sorted(shared or ())
-    if not keys:
-        return np.zeros((len(features), 0), dtype=np.float64)
-    return np.array(
-        [[float((row or {}).get(k, 0.0)) for k in keys] for row in features],
-        dtype=np.float64,
-    )
+    Args:
+        features: Per-row feature dicts.
+
+    Returns:
+        An ``(n, d)`` array over the keys numeric on every row.
+    """
+    return build_matrix(features, infer_spec(features))
 
 
 def to_arrays(

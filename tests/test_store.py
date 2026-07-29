@@ -265,3 +265,162 @@ class TestReadPath:
             pytest.raises(FileNotFoundError, match="no decisions"),
         ):
             store.read(DECISIONS)
+
+
+class FakeS3:
+    """Records put_object calls instead of talking to AWS."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> None:
+        self.objects[f"{Bucket}/{Key}"] = Body
+
+
+class FakeCursor:
+    def __init__(self, log: list[tuple[str, object]]) -> None:
+        self.log = log
+
+    def execute(self, sql: str, params: object = None) -> None:
+        self.log.append((sql.strip().split()[0].upper(), params))
+
+    def executemany(self, sql: str, rows: list[tuple[object, ...]]) -> None:
+        self.log.append(("INSERTMANY", len(rows)))
+
+    def __enter__(self) -> FakeCursor:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+class FakeConnection:
+    def __init__(self, log: list[tuple[str, object]]) -> None:
+        self.log = log
+        self.commits = 0
+
+    def cursor(self) -> FakeCursor:
+        return FakeCursor(self.log)
+
+    def commit(self) -> None:
+        self.commits += 1
+        self.log.append(("COMMIT", None))
+
+    def __enter__(self) -> FakeConnection:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+class TestAlternativeSinks:
+    """S3 and Postgres inherit the durability contract rather than restating it.
+
+    The point of the shared base is that a second copy of the buffering and
+    backpressure logic would drift, and a drifted copy loses logs silently. These
+    check that each sink actually gets the inherited behaviour.
+    """
+
+    def test_s3_writes_partitioned_keys(self) -> None:
+        from sortition.store import S3Sink
+
+        fake = FakeS3()
+        sink = S3Sink("logs-bucket", prefix="prod", client=fake, flush_interval=3600.0)
+        try:
+            for i in range(5):
+                sink.submit(DECISIONS, _row(i))
+            sink.flush()
+        finally:
+            sink.close()
+
+        assert len(fake.objects) == 1
+        key = next(iter(fake.objects))
+        # Same layout as the local sink, so one duckdb read path serves both.
+        assert key.startswith("logs-bucket/prod/decisions/dt=")
+        assert key.endswith(".parquet")
+
+    def test_s3_uploads_a_whole_object(self) -> None:
+        # One put per batch: an object appears whole or not at all, so a reader
+        # can never see a partial part.
+        import polars as pl
+
+        from sortition.store import S3Sink
+
+        fake = FakeS3()
+        with S3Sink("b", client=fake, flush_interval=3600.0) as sink:
+            for i in range(12):
+                sink.submit(DECISIONS, _row(i))
+            sink.flush()
+        body = next(iter(fake.objects.values()))
+        assert pl.read_parquet(body).height == 12
+
+    def test_s3_inherits_backpressure(self) -> None:
+        from sortition.store import S3Sink
+
+        sink = S3Sink("b", client=FakeS3(), flush_interval=3600.0, max_buffered=10)
+        try:
+            for i in range(40):
+                sink.submit(DECISIONS, _row(i))
+            assert sink.buffered == 10
+            assert sink.rows_dropped == 30
+        finally:
+            sink.close()
+
+    def test_s3_submit_never_raises_on_a_broken_client(self) -> None:
+        # A telemetry sink must not take down the request it is observing, even
+        # when the far end is down.
+        from sortition.store import S3Sink
+
+        class Broken:
+            def put_object(self, **kwargs: object) -> None:
+                raise RuntimeError("no credentials")
+
+        sink = S3Sink("b", client=Broken(), flush_interval=3600.0)
+        try:
+            sink.submit(DECISIONS, _row(0))
+            sink.flush()
+            assert sink.rows_dropped == 1
+            assert sink.rows_written == 0
+        finally:
+            sink.close()
+
+    def test_postgres_creates_schema_once_and_commits(self) -> None:
+        from sortition.store import PostgresSink
+
+        log: list[tuple[str, object]] = []
+        sink = PostgresSink(
+            "postgresql://x",
+            connect=lambda dsn: FakeConnection(log),
+            flush_interval=3600.0,
+        )
+        try:
+            for i in range(3):
+                sink.submit(DECISIONS, _row(i))
+            sink.flush()
+            for i in range(3):
+                sink.submit(DECISIONS, _row(i))
+            sink.flush()
+        finally:
+            sink.close()
+
+        verbs = [entry[0] for entry in log]
+        assert verbs.count("INSERTMANY") == 2
+        assert verbs.count("COMMIT") == 2
+        # DDL is issued once, not on every batch.
+        assert verbs.count("CREATE") == 2  # schema + table, first batch only
+
+    def test_postgres_batches_in_one_transaction(self) -> None:
+        from sortition.store import PostgresSink
+
+        log: list[tuple[str, object]] = []
+        with PostgresSink(
+            "postgresql://x",
+            connect=lambda dsn: FakeConnection(log),
+            flush_interval=3600.0,
+        ) as sink:
+            for i in range(25):
+                sink.submit(DECISIONS, _row(i))
+            sink.flush()
+        # All 25 rows land in a single executemany, matching the parquet sink's
+        # all-or-nothing part file.
+        assert ("INSERTMANY", 25) in log
