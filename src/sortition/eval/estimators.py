@@ -182,6 +182,40 @@ def snips_value(
     return float((weights * reward).sum() / total)
 
 
+def scores_for(
+    estimator: EstimatorName,
+    *,
+    action: IntArray,
+    reward: FloatArray,
+    propensity: FloatArray,
+    target_probs: FloatArray,
+    q_hat: FloatArray | None = None,
+) -> FloatArray | None:
+    """Per-row contributions for ``estimator``, or ``None`` for SNIPS.
+
+    Exposed because any quantity derived from an estimate -- a difference
+    between two policies, a subgroup breakdown -- has to be built from the same
+    per-row scores as the estimate itself. Deriving a point estimate one way and
+    its interval another produces the failure where the reported difference sits
+    outside its own confidence interval.
+    """
+    if estimator == "snips":
+        return None
+    if estimator == "ips":
+        return ips_scores(action, reward, propensity, target_probs)
+    if q_hat is None:
+        raise ValueError(f"estimator {estimator!r} needs an out-of-fold q_hat")
+    if estimator == "dm":
+        return dm_scores(target_probs, q_hat)
+    if estimator == "dr":
+        return dr_scores(action, reward, propensity, target_probs, q_hat)
+    if estimator == "switch_dr":
+        return switch_dr_scores(action, reward, propensity, target_probs, q_hat)
+    if estimator == "dr_os":
+        return dr_os_scores(action, reward, propensity, target_probs, q_hat)
+    raise ValueError(f"unknown estimator {estimator!r}")
+
+
 def _score_bounds(
     estimator: EstimatorName,
     weight_bound: float,
@@ -265,25 +299,14 @@ def estimate(
         n_excluded_leakage=n_excluded_leakage,
     )
 
-    scores: FloatArray | None
-    if estimator == "ips":
-        scores = ips_scores(action, reward, propensity, target_probs)
-    elif estimator == "dm":
-        assert q_hat is not None
-        scores = dm_scores(target_probs, q_hat)
-    elif estimator == "dr":
-        assert q_hat is not None
-        scores = dr_scores(action, reward, propensity, target_probs, q_hat)
-    elif estimator == "switch_dr":
-        assert q_hat is not None
-        scores = switch_dr_scores(action, reward, propensity, target_probs, q_hat)
-    elif estimator == "dr_os":
-        assert q_hat is not None
-        scores = dr_os_scores(action, reward, propensity, target_probs, q_hat)
-    elif estimator == "snips":
-        scores = None
-    else:
-        raise ValueError(f"unknown estimator {estimator!r}")
+    scores = scores_for(
+        estimator,
+        action=action,
+        reward=reward,
+        propensity=propensity,
+        target_probs=target_probs,
+        q_hat=q_hat,
+    )
 
     if scores is not None:
         value = float(scores.mean())
