@@ -45,8 +45,11 @@ jobs:
       - run: uv venv
       - run: uv pip install '.[eval]'
       - name: Import the eval path with no gateway installed
+        # .venv/bin/python directly, not `uv run`: uv run re-syncs the project
+        # and would pull in the dev group, which depends on sortition[all] and
+        # therefore litellm -- defeating the isolation this job exists to prove.
         run: |
-          uv run python -c "
+          .venv/bin/python -c "
           import importlib.util
           import sortition.eval, sortition.schema, sortition.sim, sortition.targets
           for forbidden in ('litellm', 'fastapi', 'lightgbm'):
