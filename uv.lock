@@ -1507,7 +1507,7 @@ wheels = [
 
 [[package]]
 name = "py-canon"
-version = "1.post11.dev0+e103102"
+version = "1.0.0.post29.dev0+e103102"
 source = { git = "https://github.com/gojiplus/py-canon?rev=v1#e103102ded64ddf057045743f375770e3e6c671b" }
 
 [[package]]
@@ -2152,6 +2152,14 @@ wheels = [
 ]
 
 [[package]]
+name = "simcheck"
+version = "0.1.0"
+source = { git = "https://github.com/finite-sample/simcheck#5ce62f8bcf73d7a8b32866b47c77b7c2d52096f6" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2256,6 +2264,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "simcheck" },
     { name = "sortition", extra = ["all"] },
 ]
 docs = [
@@ -2264,6 +2273,12 @@ docs = [
     { name = "py-canon" },
     { name = "sphinx" },
     { name = "sphinx-copybutton" },
+]
+test = [
+    { name = "hypothesis" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "simcheck" },
 ]
 
 [package.metadata]
@@ -2316,6 +2331,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.7" },
+    { name = "simcheck", git = "https://github.com/finite-sample/simcheck" },
     { name = "sortition", extras = ["all"] },
 ]
 docs = [
@@ -2324,6 +2340,12 @@ docs = [
     { name = "py-canon", git = "https://github.com/gojiplus/py-canon?rev=v1" },
     { name = "sphinx", specifier = ">=8" },
     { name = "sphinx-copybutton" },
+]
+test = [
+    { name = "hypothesis", specifier = ">=6.100" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "simcheck", git = "https://github.com/finite-sample/simcheck" },
 ]
 
 [[package]]

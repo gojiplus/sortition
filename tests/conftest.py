@@ -2,21 +2,28 @@
 
 Statistical validation needs replications, and meaningful replication counts are
 too slow for an edit-test loop. Every such test scales its work off
-``n_replications``, which is small locally and full-size in CI where
-``SORTITION_FULL_SIMS`` is set.
+``n_replications``, which is :func:`simcheck.reps_for`: 100 normally, 400 when
+``SIMCHECK_DEEP`` is set, and whatever ``SIMCHECK_REPS`` says when the scheduled
+job wants a deeper study than that.
+
+The count comes from simcheck rather than from a repo-local environment variable
+because the assertions it feeds derive their tolerance from it. Raising the
+replicate count tightens every band without a test being edited, and lowering it
+cannot quietly weaken one -- the band widens visibly in the failure message. A
+local ``SORTITION_FULL_SIMS`` returning a hand-picked 1000 or 120 kept the two
+numbers independent, which is the arrangement that lets a threshold drift away
+from the study it is meant to describe.
 """
 
 from __future__ import annotations
 
 import importlib.util
-import os
 
 import numpy as np
 import pytest
+from simcheck import reps_for
 
 from sortition.sim import BanditProblem, make_problem
-
-FULL = bool(os.environ.get("SORTITION_FULL_SIMS"))
 
 # CI builds the wheel, installs it with base dependencies only, and runs this
 # suite against it -- which is how the minimal install gets proven to work. Most
@@ -45,12 +52,7 @@ collect_ignore = [
 
 @pytest.fixture(scope="session")
 def n_replications() -> int:
-    return 1000 if FULL else 120
-
-
-@pytest.fixture(scope="session")
-def full_sims() -> bool:
-    return FULL
+    return reps_for()
 
 
 @pytest.fixture

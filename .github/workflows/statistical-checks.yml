@@ -30,7 +30,13 @@ jobs:
       - run: uv sync --all-extras --all-groups
       - run: uv run pytest
         env:
-          SORTITION_FULL_SIMS: "1"
+          # simcheck's tiers: SIMCHECK_DEEP selects the deep count and
+          # SIMCHECK_REPS sets it. 1000 is what SORTITION_FULL_SIMS used to
+          # mean here, kept so this job costs and resolves what it did before.
+          # Every gate's band is derived from the count, so raising it here
+          # tightens every assertion without a test being edited.
+          SIMCHECK_DEEP: "1"
+          SIMCHECK_REPS: "1000"
 
   minimal-install:
     # The eval path is the adoption surface: someone with a parquet file of

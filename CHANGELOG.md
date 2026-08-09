@@ -19,6 +19,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   decision path so a deployed policy scores as it was fitted.
 - `sortition dashboard`: a self-contained HTML page, no server and no CDN.
 
+### Changed
+
+- **Every coverage gate's tolerance now comes from the replicate count.** The
+  five statistical assertions in `tests/test_ci.py` and `tests/test_estimators.py`
+  were one-sided floors written by hand -- `coverage >= 0.95`, `>= 0.88`,
+  `>= 0.90` -- and an interval that is vacuously wide passes every one. They come
+  from [simcheck](https://github.com/finite-sample/simcheck) now: a two-sided
+  `assert_count_rate` where the method claims coverage equal to nominal, and
+  `binomial_band`'s lower edge where it claims coverage *at least* nominal, which
+  is what `betting_ci` guarantees as a confidence sequence.
+- `assert_intervals_informative` gates the betting interval's *width* against the
+  spread the study measured, which is the thing a one-sided floor cannot see.
+- Replicate counts come from `simcheck.reps_for` and the `SIMCHECK_DEEP` /
+  `SIMCHECK_REPS` variables, replacing the repo-local `SORTITION_FULL_SIMS`, so
+  the replicate count and the bands derived from it move together.
+
 ## [0.1.0] - 2026-07-29
 
 First release. The loop is closed: a candidate policy can be evaluated on

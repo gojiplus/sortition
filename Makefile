@@ -16,7 +16,7 @@ test:
 	uv run pytest
 
 test-full:
-	SORTITION_FULL_SIMS=1 uv run pytest
+	SIMCHECK_DEEP=1 SIMCHECK_REPS=1000 uv run pytest
 
 check: lint test
 
