@@ -29,7 +29,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "numpy>=1.26",
+    "numpy>=2.5.2",
     "pydantic>=2.9",
     # Rule tables are the documented interface for the day-one policy.
     "pyyaml>=6.0",
@@ -45,7 +45,7 @@ eval = [
     "duckdb>=1.0",
     # Required at runtime by duckdb: .pl() converts results through
     # Arrow. Never imported directly, which is why deptry needs telling.
-    "pyarrow>=17.0",
+    "pyarrow>=25.0.1",
     # The default estimator is doubly robust, so a cross-fitted outcome model is
     # part of the eval path rather than an optional upgrade to it.
     "scikit-learn>=1.5",
@@ -54,9 +54,9 @@ train = [
     "sortition[eval]",
     "lightgbm>=4.5",
 ]
-litellm = ["litellm>=1.95.0"]
+litellm = ["litellm>=1.96.0"]
 metrics = ["prometheus-client>=0.20"]
-s3 = ["boto3>=1.43.62"]
+s3 = ["boto3>=1.43.67"]
 postgres = ["psycopg[binary]>=3.3.4"]
 cli = ["sortition[eval]", "typer>=0.27.1", "rich>=13.0"]
 all = ["sortition[eval,train,litellm,cli,metrics]"]
@@ -70,7 +70,7 @@ Issues = "https://github.com/gojiplus/sortition/issues"
 sortition = "sortition.cli:main"
 
 [dependency-groups]
-dev = ["sortition[all]", "pytest>=8.3", "pytest-cov>=5.0", "hypothesis>=6.165.0", "ruff>=0.16.1", "pyright>=1.1.390", "pydoclint>=0.5", "deptry>=0.20", "codespell>=2.4"]
+dev = ["sortition[all]", "pytest>=8.3", "pytest-cov>=5.0", "hypothesis>=6.165.2", "ruff>=0.16.2", "pyright>=1.1.390", "pydoclint>=0.5", "deptry>=0.20", "codespell>=2.4"]
 docs = ["sphinx>=8", "furo", "myst-parser", "sphinx-copybutton", "py-canon @ git+https://github.com/gojiplus/py-canon@v1"]
 
 [tool.hatch.build.targets.wheel]
