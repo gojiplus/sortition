@@ -51,6 +51,111 @@ logs will look good on those logs.
 
 Step 2 is the one no other open-source router can do.
 
+## What a request is worth
+
+A policy that ignores price sends everything to the best model. One that prices
+it needs an exchange rate between quality and dollars -- and that number is not
+in the log. What *is* in the log is what each rate would have bought, so
+`--tune-cost-weight` measures the whole curve and you say how much you will
+spend:
+
+```bash
+sortition train logs.parquet -o learned.json --tune-cost-weight --tolerance 0.05
+
+# cost-weight frontier, on 7759 tuning rows:
+#    weight    outcome   cost_usd/req            vs ignoring cost
+#         0     0.7776        0.02661  +0.0000 [+0.0000, +0.0000]
+# *   0.125     0.7825        0.02163  +0.0049 [-0.0114, +0.0225]
+#      0.25     0.7490        0.01511  -0.0286 [-0.0513, -0.0064]
+#       0.5     0.6764       0.008416  -0.1012 [-0.1309, -0.0720]
+#         4     0.5918       0.003227  -0.1858 [-0.2241, -0.1501]
+#
+# chose cost_weight=0.125: saves 0.00498 of cost_usd per request, and is +0.0049 on outcome.
+```
+
+Nineteen percent off the bill, provably inside the 0.05 of outcome you said you
+would spend, and a cliff immediately after it. The whole table is printed because
+the shape is the finding: an operator who sees the drop between 0.125 and 0.5
+knows something a single chosen number would have hidden.
+
+The test is one-sided on purpose. `--tolerance 0.05` asks for the cheapest weight
+the log can *prove* stays within 0.05 of ignoring cost, not the cheapest one that
+is not provably worse -- which passes everything when the log is too small to
+measure anything, and hands back the most aggressive weight on the grid exactly
+when there is least reason to trust it. At the default of 0.01 this same log
+declines to trade at all, because the interval at 0.125 reaches -0.0114.
+
+A margin of exactly zero is not the safe choice it looks like. Proving a
+difference is no worse than zero takes an interval that excludes everything
+negative, and the interval around a true difference of zero straddles it at any
+sample size -- so `--tolerance 0` refuses every trade, including two arms of
+identical quality where one costs ten times more. It is available and it means
+"do not trade"; the default is a point of outcome instead.
+
+There are three splits here, not two. The weight is chosen on rows the boosters
+never saw, and reported on rows neither the boosters nor the sweep saw. Picking
+a point from seven and then quoting that point's own number is the train/test
+error one level up.
+
+Cost is predicted per request, not per arm. A bill is price-per-token times
+tokens, so the premium model is nearly free on a short request and ruinous on a
+long one; charging every request the arm's average gets that backwards on both
+ends. The cost model is a Tweedie-loss booster over the same features -- spend is
+non-negative, right-skewed, and has a point mass at exactly zero when a call is
+served from cache.
+
+### Does it actually save money
+
+On a real log this is unanswerable, which is what the simulator is for: it knows
+the true quality and the true price of every arm on every request, so a claim
+about dollars can be checked rather than estimated. Sixty thousand logged
+requests, five arms, a fifty-fold price ladder:
+
+| policy | true quality | $ per 1M requests |
+|---|---|---|
+| the incumbent router | 0.5878 | 18,506 |
+| always the cheapest arm | 0.4440 | 1,156 |
+| always the dearest arm | 0.5441 | 57,793 |
+| learned, cost ignored | 0.7217 | 23,955 |
+| learned, tuned at `--tolerance 0.05` | 0.7097 | **11,348** |
+
+Thirty-nine percent cheaper than the router that produced the logs, and better on
+quality, which is the combination worth having. Ignoring cost would have been
+*more* expensive than the incumbent.
+
+Optimality is the harder question, and the same ground truth answers it. Sweeping
+`argmax_a [q(x,a) - lambda*cost(x,a)]` over lambda traces the best curve any
+router could achieve, so the tuned policy can be priced against it at its own
+quality:
+
+| what the policy ranks by | $ per 1M | vs the best possible |
+|---|---|---|
+| true quality, true cost | 4,324 | 1.00x |
+| true quality, **learned** cost | 4,331 | 1.00x |
+| **learned** quality, true cost | 11,753 | 2.72x |
+| best any model could do from the four logged features | 5,254 | 1.22x |
+
+Replacing the learned prices with perfect ones moves the bill by 0.2%, so the
+cost model is worth what knowing the costs exactly is worth. The gap that remains
+is the quality model, and it is not a loss function or a capacity problem --
+squared error against binary logloss, weighted against unweighted, and four sizes
+of tree all land within a percent of each other. It is estimation error on a
+Bernoulli outcome: choosing the wrong arm is nearly free when arms cost the same
+and expensive against a fifty-fold ladder, which is why a 53% top-one rate costs
+2.7x.
+
+More logs help, up to a point. Repeating the whole exercise at five sizes takes
+the gap from 4.7x at 30k rows to about 1.9x at 240k, where it flattens rather
+than continuing toward the 1.22x that the logged features permit. So a thin log
+is the first thing to fix and not the last; what is left after that is worth
+understanding before anyone promises it away. These are single runs at one seed,
+so read the trend and not the third digit.
+
+Exploration is not free either. The same frontier without the 5% floor reaches
+that quality for $3,032 per 1M rather than $4,324, so keeping the log answerable
+costs about 43% of the bill here. That is the price of being able to run any of
+this next quarter, and it is a number rather than a principle.
+
 ## Try it in thirty seconds
 
 ```bash
@@ -127,7 +232,7 @@ Two consequences run through the design:
 |---|---|
 | `sortition.eval` | IPS, SNIPS, DM, DR, switch-DR, shrinkage-DR; cross-fitted outcome models; Waudby-Smith–Ramdas betting intervals for bounded outcomes, bootstrap for cost and latency; overlap and support diagnostics that refuse rather than guess |
 | `sortition.decide` | rules policies, epsilon-greedy with exact propensities, Thompson with Monte Carlo ones, versioned artifacts, hot reload |
-| `sortition.train` | a boosted-tree policy fitted from logs, deployable as the same artifact a rules table produces |
+| `sortition.train` | a boosted-tree policy fitted from logs, with a second model for what each request costs, and a sweep that picks the quality/price exchange rate instead of asking you for it |
 | `sortition.integrations` | LiteLLM routing plugin and logging callback |
 | `sortition.store` | durable, non-blocking, date-partitioned parquet; duckdb read path; S3 and Postgres sinks |
 | `sortition.health` | is this log still able to justify the router? |
@@ -138,9 +243,10 @@ Two consequences run through the design:
 
 ```bash
 pip install 'sortition[eval]'          # estimators only; no gateway dependency
+pip install 'sortition[cli]'           # + the sortition command
 pip install 'sortition[eval,litellm]'  # + the routing plugin and log adapter
-pip install 'sortition[train]'          # + the learned policy
-pip install 'sortition[s3]'             # + object-storage sink
+pip install 'sortition[train]'         # + the learned policy and the cost sweep
+pip install 'sortition[s3]'            # + object-storage sink
 pip install 'sortition[all]'
 ```
 

@@ -55,8 +55,14 @@ class BanditProblem:
     """``(M, K)`` expected reward per context-arm pair, in [0, 1]."""
 
     cost: FloatArray
-    """``(K,)`` expected cost per arm in USD. Unbounded and right-skewed when
-    realized, which exercises a different interval path than bounded rewards."""
+    """``(M, K)`` expected cost in USD for each context-arm pair.
+
+    Per context, not per arm, because a bill is price-per-token times tokens: the
+    same arm costs ten times more on a long request than a short one. A per-arm
+    constant would let a router price the cheap-to-premium ladder and nothing
+    else. Unbounded and right-skewed when realized, which exercises a different
+    interval path than bounded rewards.
+    """
 
     eligible: BoolArray
     """``(M, K)`` which arms survive the hard filter for each context."""
@@ -81,7 +87,7 @@ class BanditProblem:
     def cost_value(self, policy: Policy) -> float:
         """The exact expected cost of ``policy``."""
         probs = policy(self.contexts, self.eligible)
-        return float((probs * self.cost[None, :]).sum(axis=1).mean())
+        return float((probs * self.cost).sum(axis=1).mean())
 
 
 @dataclass(frozen=True)
@@ -136,9 +142,10 @@ def make_problem(
     """Build a problem with heterogeneous arm quality.
 
     Expected rewards vary with context, so a context-aware policy genuinely beats
-    a constant one and the estimators have something to distinguish. Arm costs
+    a constant one and the estimators have something to distinguish. Arm prices
     increase with index, mimicking the cheap-to-premium ladder that makes routing
-    worth doing at all.
+    worth doing at all, and every price is multiplied by the request's size, so
+    the gap between two arms is wide on a long request and narrow on a short one.
 
     ``ineligible_rate`` drops arms from the eligible set at random, which is how
     a hard constraint (tool support, context window, region) shows up in a log.
@@ -154,7 +161,12 @@ def make_problem(
     logits = contexts @ weights + intercepts[None, :]
     q = 1.0 / (1.0 + np.exp(-logits))
 
-    cost = np.geomspace(0.001, 0.05, n_arms)
+    # Feature 0 is the size dimension: `sim.to_frame` renders it as `n_tokens`,
+    # so a cost model fitted on the resulting log can recover this relation from
+    # a feature a real gateway also logs.
+    price = np.geomspace(0.001, 0.05, n_arms)
+    size = np.exp(0.5 * contexts[:, 0])
+    cost = price[None, :] * size[:, None]
 
     eligible = np.ones((n_contexts, n_arms), dtype=bool)
     if ineligible_rate > 0.0:
@@ -196,11 +208,12 @@ def sample_logs(
     q_taken = problem.q[idx, action]
     reward = (rng.random(n) < q_taken).astype(np.float64)
 
-    # Realized cost is right-skewed around the arm's expected cost: token counts
-    # vary a lot per request. Calibrated so the mean equals problem.cost[action].
+    # Realized cost is right-skewed around the expected cost of this
+    # context-arm pair: two requests of the same nominal size still differ.
+    # Calibrated so the mean equals problem.cost[idx, action].
     sigma = 0.6
     noise = rng.lognormal(mean=-0.5 * sigma**2, sigma=sigma, size=n)
-    cost = problem.cost[action] * noise
+    cost = problem.cost[idx, action] * noise
 
     return LoggedData(
         context_idx=idx.astype(np.int64),

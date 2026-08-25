@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-24
+
 ### Added
 
 - `S3Sink` and `PostgresSink`, behind the `s3` and `postgres` extras. Both
@@ -18,9 +20,50 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `sortition.features`: the feature vectoriser, shared by training and the
   decision path so a deployed policy scores as it was fitted.
 - `sortition dashboard`: a self-contained HTML page, no server and no CDN.
+- `sortition.train.sweep`: traces the quality/price frontier over a grid of cost
+  weights and selects a point by a non-inferiority test against ignoring cost
+  entirely, so the exchange rate comes from the log instead of from a constant
+  somebody typed. `sortition train --tune-cost-weight` prints the whole frontier
+  and splits three ways -- fit, tune, report -- because choosing a weight on the
+  rows the result is quoted on is the same error the train/test split prevents,
+  one level up. On the simulator, where the true cost of every arm on every
+  request is known, the tuned policy bills 39% less than the router that produced
+  the logs and scores better on quality; ignoring cost would have billed more
+  than the incumbent.
+- `tests/test_clean_cases.py`: problems whose optimum is stated in advance --
+  identical quality at ten times the price, a dominated arm, a noiseless price
+  ladder. Every other test measures against a simulator optimum nobody hits
+  exactly, so its assertions are inequalities loose enough to hide a real defect.
+  These found two.
+- `tests/test_conftest_gating.py`: asserts that a test module importing an
+  optional extra is declared in `conftest._NEEDS`. An undeclared module does not
+  skip on the minimal install, it fails collection and takes the whole job with
+  it, which is a one-line omission with no local symptom.
+- `TreePolicy.predict_cost`, and a second Tweedie-loss booster behind it, so what
+  a request costs is predicted per request instead of charged at the arm's global
+  mean.
 
 ### Changed
 
+- **The default `tolerance` for the cost-weight sweep is 0.01, not zero.** A
+  margin of exactly zero looks like the safe choice and is instead a rule that
+  never fires: proving a difference is no worse than zero needs an interval
+  excluding everything negative, and the interval around a true difference of
+  zero straddles it at every sample size. Two arms of identical quality where one
+  costs ten times more -- the one trade nobody would argue with -- was refused.
+  Zero is still accepted and now means "do not trade".
+- **A trained policy now prices cost per request, not per arm.** `TreePolicy`
+  charged every request the arm's mean cost over the whole training log, so a
+  200-token call and a 20k-token call were priced identically and the cost term
+  could only ever express the cheap-to-premium ladder. It fits a second booster
+  over the same design instead. On the simulator this cuts the error against the
+  true expected cost by a factor of 3.7 (mean absolute error 0.0018 against the
+  per-arm mean's 0.0067). `cost_usd` is gone from the `kind="tree"` payload and
+  `cost_booster_text` replaces it; a `cost_weight` with no cost column to learn
+  from is now an error rather than a silently inert setting.
+- `sim.BanditProblem.cost` is `(n_contexts, n_arms)`, not `(n_arms,)`. A bill is
+  price-per-token times tokens, and a per-arm constant left nothing for a cost
+  model to learn.
 - **Every coverage gate's tolerance now comes from the replicate count.** The
   five statistical assertions in `tests/test_ci.py` and `tests/test_estimators.py`
   were one-sided floors written by hand -- `coverage >= 0.95`, `>= 0.88`,
@@ -90,9 +133,20 @@ reported on.
 
 ### Known limits
 
+The learned policy reaches about 2.7x the cheapest bill that would buy its own
+quality on the contextual simulator. Substituting exact costs for the fitted ones
+moves that by 0.2%, so the distance is the quality model rather than the pricing:
+it is estimation error on a Bernoulli outcome, not a loss function or a capacity
+setting, and squared error against binary logloss, weighted against unweighted,
+and four tree sizes all land within a percent of each other. More logs narrow it
+to about 1.9x by 240k rows and then it flattens, short of the 1.22x the logged
+features permit. Early stopping closes the gap where features carry no signal and
+widens it where they do.
+
 Validated against a simulator with known ground truth and a mocked LiteLLM, not
 against real production traffic. Sink throughput under sustained load and parquet
 part-count growth over weeks are untested.
 
-[Unreleased]: https://github.com/gojiplus/sortition/compare/main...main
+[Unreleased]: https://github.com/gojiplus/sortition/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/gojiplus/sortition/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gojiplus/sortition/commits/main

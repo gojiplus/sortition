@@ -14,7 +14,7 @@ claim is prior to what the claim is, and it is the question people skip.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -336,45 +336,93 @@ def train(
     cost_weight: Annotated[
         float, typer.Option(help="How much predicted quality to trade for price.")
     ] = 0.0,
+    tune_cost_weight: Annotated[
+        bool,
+        typer.Option(
+            "--tune-cost-weight",
+            help="Choose the cost weight from the logs instead of taking it.",
+        ),
+    ] = False,
+    tolerance: Annotated[
+        float | None,
+        typer.Option(help="Most quality to spend on price, when tuning."),
+    ] = None,
+    budget: Annotated[
+        float | None,
+        typer.Option(help="Ceiling on cost per request. Overrides --tolerance."),
+    ] = None,
     epsilon: Annotated[
         float, typer.Option(help="Exploration floor for the trained policy.")
     ] = 0.05,
     holdout: Annotated[
         float, typer.Option(help="Share of rows kept back to evaluate on.")
     ] = 0.3,
+    tune: Annotated[
+        float, typer.Option(help="Share of rows the cost-weight sweep may see.")
+    ] = 0.2,
     name: Annotated[str | None, typer.Option(help="Label for the artifact.")] = None,
     seed: Annotated[int, typer.Option()] = 0,
 ) -> None:
     """Fit a policy from logs and report whether it beats what produced them."""
+    from sortition.decide.artifact import save as save_artifact
     from sortition.eval import evaluate
     from sortition.targets import PolicyTarget
+    from sortition.train import (
+        DEFAULT_TOLERANCE,
+        split_three_ways,
+        sweep,
+        train_test_split,
+    )
     from sortition.train import train as fit
-    from sortition.train import train_test_split
 
     frame = _load(log)
-    train_rows, held_out = train_test_split(frame, holdout=holdout, seed=seed)  # type: ignore[arg-type]
 
-    result = fit(
-        train_rows,
-        metric=metric,
-        cost_weight=cost_weight,
-        epsilon=epsilon,
-        name=name,
-        seed=seed,
-    )
-    from sortition.decide.artifact import save as save_artifact
+    if tune_cost_weight:
+        # Three splits, not two. Choosing the weight on the rows the result is
+        # quoted on would make the reported gain partly the luck of whichever
+        # grid point suited that split.
+        fit_rows, tune_rows, held_out = split_three_ways(
+            frame,  # type: ignore[arg-type]
+            tune=tune,
+            holdout=holdout,
+            seed=seed,
+        )
+        swept = sweep(
+            fit_rows,
+            tune_rows,
+            metric=metric,
+            epsilon=epsilon,
+            budget=budget,
+            tolerance=DEFAULT_TOLERANCE if tolerance is None else tolerance,
+            name=name,
+            seed=seed,
+        )
+        artifact = swept.artifact(name=name)
+        policy, n_rows = swept.policy, swept.n_fit
+        feature_spec = swept.feature_spec
+        _echo_frontier(swept)
+    else:
+        result = fit(
+            (rows := train_test_split(frame, holdout=holdout, seed=seed))[0],  # type: ignore[arg-type]
+            metric=metric,
+            cost_weight=cost_weight,
+            epsilon=epsilon,
+            name=name,
+            seed=seed,
+        )
+        held_out = rows[1]
+        artifact, policy = result.artifact, result.policy
+        n_rows, feature_spec = result.n_rows, result.feature_spec
 
-    save_artifact(result.artifact, out)
-    typer.echo(f"trained {result.artifact.policy_version} on {result.n_rows} rows")
-    typer.echo(f"features: {', '.join(result.feature_spec)}")
+    save_artifact(artifact, out)
+    typer.echo(f"trained {artifact.policy_version} on {n_rows} rows")
+    typer.echo(f"features: {', '.join(feature_spec)}")
     typer.echo(f"wrote {out}")
 
     # Measured on rows the policy has not seen. Training and evaluating on the
     # same logs would flatter any candidate, which is the whole reason for the
     # holdout.
-    target = PolicyTarget(
-        policy=result.policy, epsilon=epsilon, name=result.artifact.policy_version
-    )
+    target = PolicyTarget(policy=policy, epsilon=epsilon, name=artifact.policy_version)
     estimate = evaluate(held_out, target, metric=metric, estimator="dr")
     observed = float(held_out.get_column(metric).drop_nulls().to_numpy().mean())
 
@@ -445,3 +493,62 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _echo_frontier(swept: Any) -> None:
+    """Print the measured quality/price frontier and the point taken from it.
+
+    The whole table is shown, not only the winner: the shape of the frontier is
+    what tells an operator whether the choice was close, and a single chosen
+    number hides a curve that was flat over three grid points.
+
+    Args:
+        swept: A :class:`~sortition.train.sweep.SweepResult`.
+    """
+    typer.echo("")
+    typer.echo(f"cost-weight frontier, on {swept.n_tune} tuning rows:")
+    # The cost column is named for the metric rather than labelled "per
+    # request": these are dollars only if the log's cost column holds dollars,
+    # and a bare number under a generic heading invites the reader to assume.
+    typer.echo(
+        f"  {'weight':>7}  {swept.metric:>9}  {swept.cost_metric + '/req':>13}  "
+        f"{'vs ignoring cost':>26}"
+    )
+    for point in swept.frontier:
+        low, high = point.quality_difference_interval
+        mark = "*" if point.cost_weight == swept.chosen.cost_weight else " "
+        typer.echo(
+            f"{mark} {point.cost_weight:>7g}  {point.quality:>9.4f}  "
+            f"{point.cost:>13.4g}  {point.quality_difference:>+7.4f} "
+            f"[{low:+.4f}, {high:+.4f}]"
+        )
+
+    chosen = swept.chosen
+    if chosen.cost_weight == 0.0:
+        why = (
+            f"no cheaper weight stays within {swept.tolerance:g} of ignoring cost"
+            if swept.budget is None
+            else "the budget is met without trading any quality"
+        )
+        typer.echo(f"\nchose cost_weight=0: {why}.")
+        # A bare refusal cannot be acted on: it looks the same whether the dear
+        # arm is genuinely worth it or the log is too thin to prove otherwise.
+        # The margin that would have cleared, and what it buys, is the number
+        # the operator actually needs.
+        alternative = swept.next_best
+        if alternative is not None and swept.budget is None:
+            typer.echo(
+                f"  --tolerance {alternative.tolerance_required:.3g} would take "
+                f"cost_weight={alternative.cost_weight:g} and save "
+                f"{alternative.saving:.3g} of {swept.cost_metric} per request."
+            )
+    else:
+        spent = (
+            f"gives up {-chosen.quality_difference:.4f} of {swept.metric}"
+            if chosen.quality_difference < 0.0
+            else f"and is {chosen.quality_difference:+.4f} on {swept.metric}"
+        )
+        typer.echo(
+            f"\nchose cost_weight={chosen.cost_weight:g}: saves "
+            f"{chosen.saving:.3g} of {swept.cost_metric} per request, {spent}."
+        )

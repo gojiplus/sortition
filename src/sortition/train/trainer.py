@@ -8,6 +8,12 @@ of logs will look good on those logs. :func:`train_test_split` exists so the
 comparison against the incumbent is made somewhere the candidate has not seen,
 and :func:`train` refuses to quietly do otherwise.
 
+**Fit cost as well as quality.** What an arm costs is not a property of the arm:
+a bill is price-per-token times tokens, so the same arm is ten times dearer on a
+long request. A second booster over the same design predicts dollars, which is
+what lets the policy know that the premium arm is nearly free on a short request
+and ruinous on a long one.
+
 **Weight the fit by inverse propensity.** The logs were not collected uniformly:
 the incumbent policy sent most traffic to the arms it already liked, so an
 unweighted fit learns most about those arms and least about the ones a candidate
@@ -38,6 +44,18 @@ logger = logging.getLogger(__name__)
 # Below this, a boosted model is fitting noise and a rules table is the better
 # starting point.
 MIN_ROWS_TO_TRAIN = 500
+
+COST_OBJECTIVE = "tweedie"
+"""The loss for the cost model. Spend is non-negative, heavily right-skewed, and
+has a point mass at exactly zero -- a cache hit or a call that failed before it
+billed. That is the compound Poisson-gamma shape Tweedie regression exists for,
+and it is what actuaries fit claim severity with for the same reason.
+
+Squared error is wrong here in a way that shows: on the simulator it predicts a
+negative bill on 1.1% of rows, which reads as a credit, and lands 40% further
+from the true expected cost. A plain gamma loss is more accurate still (MAE
+0.0018 against Tweedie's 0.0021 and squared error's 0.0025) but refuses to fit
+at all when any logged cost is zero, which a real log guarantees."""
 
 
 @dataclass(frozen=True)
@@ -84,6 +102,7 @@ def train(
     *,
     metric: str = "outcome",
     cost_weight: float = 0.0,
+    cost_metric: str = "cost_usd",
     epsilon: float = 0.05,
     name: str | None = None,
     weight_by_propensity: bool = True,
@@ -96,8 +115,11 @@ def train(
         logs: Training rows. Use :func:`train_test_split` and keep the rest back,
             or the comparison against the incumbent will flatter the result.
         metric: Outcome column to predict.
-        cost_weight: How much predicted quality to trade for price. Zero picks
-            the best arm regardless of cost.
+        cost_weight: How much predicted quality to trade for price, in units of
+            the outcome: the score charges the dearest eligible arm this much
+            against the cheapest. Zero picks the best arm regardless of cost.
+            :func:`sortition.train.sweep.sweep` chooses it from logs instead.
+        cost_metric: Column holding the dollar cost of each logged call.
         epsilon: Exploration floor for the resulting policy. Keeping it above
             zero is what lets the *next* policy be trained from these logs too.
         name: Label prefixed to the artifact's content hash.
@@ -109,14 +131,13 @@ def train(
         The fitted policy and its artifact.
 
     Raises:
-        ValueError: If the log lacks the metric, has no usable features, or has
-            too few rows to fit anything meaningful.
+        ValueError: If the log lacks the metric, has no usable features, has too
+            few rows to fit anything meaningful, or asks for a cost weight
+            without a cost column to learn prices from.
     """
-    from lightgbm import LGBMRegressor
-
     from sortition.decide.artifact import build
 
-    data = to_arrays(logs, metrics=(metric,))
+    data = to_arrays(logs, metrics=(metric, cost_metric))
     if metric not in data.metrics:
         raise ValueError(f"log has no {metric!r} column to learn from")
 
@@ -137,14 +158,13 @@ def train(
         )
 
     features = matrix(data.features, spec)[observed]
-    action = data.action[observed]
     target = values[observed]
 
     # Arm identity as a one-hot block: one model over all arms shares what makes
     # a request hard, which per-arm models discard where data is thinnest.
-    onehot = np.zeros((len(action), len(data.arms)), dtype=np.float64)
-    onehot[np.arange(len(action)), action] = 1.0
-    design = np.hstack([features, onehot])
+    onehot_all = np.zeros((len(data.action), len(data.arms)), dtype=np.float64)
+    onehot_all[np.arange(len(data.action)), data.action] = 1.0
+    design = np.hstack([features, onehot_all[observed]])
 
     sample_weight = None
     if weight_by_propensity:
@@ -153,23 +173,42 @@ def train(
         sample_weight = 1.0 / data.propensity[observed]
         sample_weight = sample_weight / sample_weight.mean()
 
-    booster = LGBMRegressor(
-        n_estimators=booster_kwargs.pop("n_estimators", 300),
-        learning_rate=booster_kwargs.pop("learning_rate", 0.05),
-        num_leaves=booster_kwargs.pop("num_leaves", 31),
-        min_child_samples=booster_kwargs.pop("min_child_samples", 20),
-        random_state=seed,
-        verbose=-1,
-        **booster_kwargs,
-    )
-    booster.fit(design, target, sample_weight=sample_weight)
+    booster = _fit(design, target, sample_weight, seed, dict(booster_kwargs))
 
-    costs = _mean_cost_per_arm(logs, data)
+    # The cost model sees the rows that have a price, which is not the same set
+    # as the rows that have an outcome: a cost is recorded when the call
+    # resolves, an outcome may never arrive at all.
+    cost_text: str | None = None
+    if cost_metric in data.metrics:
+        priced = ~np.isnan(data.metrics[cost_metric])
+        if int(priced.sum()) >= MIN_ROWS_TO_TRAIN:
+            cost_design = np.hstack([matrix(data.features, spec), onehot_all])[priced]
+            cost_weights = None
+            if weight_by_propensity:
+                cost_weights = 1.0 / data.propensity[priced]
+                cost_weights = cost_weights / cost_weights.mean()
+            cost_booster = _fit(
+                cost_design,
+                data.metrics[cost_metric][priced],
+                cost_weights,
+                seed,
+                dict(booster_kwargs),
+                objective=COST_OBJECTIVE,
+            )
+            cost_text = cost_booster.booster_.model_to_string()
+
+    if cost_weight != 0.0 and cost_text is None:
+        raise ValueError(
+            f"cost_weight={cost_weight} was asked for but the log has no usable "
+            f"{cost_metric!r} column, so there is nothing to price arms with. "
+            "Log what each call cost, or train with cost_weight=0."
+        )
+
     policy = TreePolicy(
         booster_text=booster.booster_.model_to_string(),
         feature_spec=spec,
         arms=data.arms,
-        cost_usd=costs,
+        cost_booster_text=cost_text,
         cost_weight=cost_weight,
         name=name or "tree",
     )
@@ -191,23 +230,40 @@ def train(
     )
 
 
-def _mean_cost_per_arm(logs: pl.DataFrame, data: Any) -> dict[str, float]:
-    """Average observed cost per arm, for the policy's cost term.
+def _fit(
+    design: np.ndarray,
+    target: np.ndarray,
+    sample_weight: np.ndarray | None,
+    seed: int,
+    booster_kwargs: dict[str, Any],
+    *,
+    objective: str = "regression",
+) -> Any:
+    """Fit one booster over an (arm, feature) design.
 
     Args:
-        logs: The log table.
-        data: The reduced arrays, for the arm universe.
+        design: Rows of features concatenated with the arm one-hot block.
+        target: What to predict.
+        sample_weight: Inverse-propensity weights, or ``None``.
+        seed: Seed for the booster.
+        booster_kwargs: Overrides passed to ``LGBMRegressor``.
+        objective: The loss. Squared error for a bounded outcome; see
+            :data:`COST_OBJECTIVE` for why cost gets a different one.
 
     Returns:
-        Mean cost per arm, empty when the log has no cost column.
+        The fitted regressor.
     """
-    if "cost_usd" not in logs.columns:
-        return {}
-    costs: dict[str, float] = {}
-    for arm in data.arms:
-        rows = (
-            logs.filter(logs["chosen_arm"] == arm).get_column("cost_usd").drop_nulls()
-        )
-        if len(rows):
-            costs[arm] = float(rows.to_numpy().mean())
-    return costs
+    from lightgbm import LGBMRegressor
+
+    booster = LGBMRegressor(
+        objective=booster_kwargs.pop("objective", objective),
+        n_estimators=booster_kwargs.pop("n_estimators", 300),
+        learning_rate=booster_kwargs.pop("learning_rate", 0.05),
+        num_leaves=booster_kwargs.pop("num_leaves", 31),
+        min_child_samples=booster_kwargs.pop("min_child_samples", 20),
+        random_state=seed,
+        verbose=-1,
+        **booster_kwargs,
+    )
+    booster.fit(design, target, sample_weight=sample_weight)
+    return booster

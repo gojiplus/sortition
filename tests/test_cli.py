@@ -225,3 +225,65 @@ class TestDoctorHealth:
         checked = runner.invoke(app, ["doctor", str(source), "--check"])
         assert checked.exit_code == 1
         assert "NOT HEALTHY" in checked.output
+
+
+def test_train_tunes_the_cost_weight_and_prints_the_whole_frontier(
+    log_file: Path, tmp_path: Path
+) -> None:
+    # The table matters as much as the choice: an operator who can see the
+    # frontier knows whether the pick was close or obvious, which a single
+    # selected number hides.
+    out = tmp_path / "tuned.json"
+    result = runner.invoke(
+        app,
+        [
+            "train",
+            str(log_file),
+            "--out",
+            str(out),
+            "--tune-cost-weight",
+            "--tolerance",
+            "0.05",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "cost-weight frontier" in result.output
+    assert "chose cost_weight=" in result.output
+    for weight in ("0.125", "0.25", "0.5", "1", "2", "4"):
+        assert weight in result.output
+    assert result.output.count("*") >= 1
+
+
+def test_a_tuned_artifact_loads_and_carries_its_cost_model(
+    log_file: Path, tmp_path: Path
+) -> None:
+    from sortition.decide.artifact import load
+
+    out = tmp_path / "tuned.json"
+    result = runner.invoke(
+        app, ["train", str(log_file), "--out", str(out), "--tune-cost-weight"]
+    )
+    assert result.exit_code == 0, result.output
+
+    policy, _, artifact = load(out)
+    assert artifact.kind == "tree"
+    assert policy.cost_booster_text is not None
+    priced = policy.predict_cost({"n_tokens": 900.0}, policy.arms)
+    assert set(priced) == set(policy.arms)
+    assert all(value >= 0.0 for value in priced.values())
+
+
+def test_an_unreachable_budget_fails_loudly(log_file: Path, tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "train",
+            str(log_file),
+            "--out",
+            str(tmp_path / "x.json"),
+            "--tune-cost-weight",
+            "--budget",
+            "0.0000001",
+        ],
+    )
+    assert result.exit_code != 0
