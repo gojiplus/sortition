@@ -390,6 +390,7 @@ def train(
         )
 
     frame = _load(log)
+    swept = None
 
     if tune_cost_weight:
         # Three splits, not two. Choosing the weight on the rows the result is
@@ -440,7 +441,7 @@ def train(
     estimate = evaluate(held_out, target, metric=metric, estimator="dr")
     observed = float(held_out.get_column(metric).drop_nulls().to_numpy().mean())
 
-    if tune_cost_weight and swept.chosen.cost_weight != 0.0:
+    if swept is not None and swept.chosen.cost_weight != 0.0:
         # The saving printed with the frontier was measured on the rows the
         # winning weight was selected on, so it is the number most likely to be
         # flattered by the search. Re-measure the same trade-off here, against

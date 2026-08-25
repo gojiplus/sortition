@@ -179,6 +179,7 @@ def train(
     # as the rows that have an outcome: a cost is recorded when the call
     # resolves, an outcome may never arrive at all.
     cost_text: str | None = None
+    cost_booster: Any = None
     if cost_metric in data.metrics:
         priced = ~np.isnan(data.metrics[cost_metric])
         if int(priced.sum()) >= MIN_ROWS_TO_TRAIN:
@@ -211,7 +212,7 @@ def train(
     # Recorded in the artifact so a deployed policy charges what it was tuned to
     # charge; deriving it live would move with the traffic mix.
     cost_scale = 0.0
-    if cost_text is not None:
+    if cost_booster is not None:
         priced_grid = np.hstack([matrix(data.features, spec), onehot_all])
         per_arm = np.vstack(
             [
