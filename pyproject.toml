@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
 
 [project]
 name = "sortition"
@@ -34,7 +34,7 @@ dependencies = [
     # Rule tables are the documented interface for the day-one policy.
     "pyyaml>=6.0",
 ]
-dynamic = ["version"]
+version = "0.2.0"
 
 [project.optional-dependencies]
 # The eval path must install without litellm or fastapi: it has to run on a
@@ -84,11 +84,6 @@ test = [
 dev = ["sortition[all]", {include-group = "test"}, "ruff>=0.16.2", "pyright>=1.1.390", "pydoclint>=0.5", "deptry>=0.20", "codespell>=2.4"]
 docs = ["sphinx>=8", "furo", "myst-parser", "sphinx-copybutton", "py-canon @ git+https://github.com/gojiplus/py-canon@v1"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/sortition"]
-
-[tool.hatch.version]
-source = "uv-dynamic-versioning"
 [tool.ruff]
 line-length = 88
 target-version = "py312"
@@ -127,10 +122,6 @@ check-return-types = false
 check-class-attributes = false
 allow-init-docstring = true
 exclude = '\.venv|tests|docs'
-
-[tool.uv-dynamic-versioning]
-vcs = "git"
-style = "pep440"
 
 [tool.deptry.per_rule_ignores]
 # pyarrow: a transitive runtime requirement of duckdb's .pl(), never imported
