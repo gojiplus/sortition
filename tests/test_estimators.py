@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from simcheck import assert_count_rate, binomial_band
 from sklearn.tree import DecisionTreeRegressor
 
 from sortition.eval import (
@@ -275,7 +276,7 @@ class TestCrossFitting:
         truth = problem.value(target)
         reps = min(n_replications, 150)
 
-        def coverage(cross_fit: bool) -> float:
+        def covered_count(cross_fit: bool) -> int:
             covered = 0
             for s in range(reps):
                 logs = sample_logs(problem, behavior, 1_500, seed=500 + s)
@@ -299,8 +300,25 @@ class TestCrossFitting:
                 )
                 assert est.interval is not None
                 covered += est.interval.covers(truth)
-            return covered / reps
+            return covered
 
-        assert coverage(cross_fit=True) >= 0.90
-        # The regression guard: if someone drops cross-fitting, this fails.
-        assert coverage(cross_fit=False) < 0.90
+        # Two-sided, because the normal interval on a doubly robust estimate
+        # claims coverage equal to nominal rather than at least it. The old
+        # `>= 0.90` floor for a nominal 0.95 was satisfied by an interval that
+        # covered every single time, which is the failure this whole class is
+        # about -- an interval whose width has stopped being informative.
+        assert_count_rate(
+            covered_count(cross_fit=True), reps, 0.95, label="cross-fitted DR"
+        )
+
+        # The regression guard: if someone drops cross-fitting, this fails. It is
+        # a deliberate negative control, so it asserts under-coverage against the
+        # band's *lower* edge rather than against a band on both sides -- the
+        # claim is that in-sample fitting pushes coverage outside what 0.95 can
+        # produce at this many replicates, and the measured rate is about 0.79.
+        floor, _ = binomial_band(0.95, reps)
+        in_sample = covered_count(cross_fit=False) / reps
+        assert in_sample < floor, (
+            f"in-sample fitting should under-cover badly; measured {in_sample:.3f} "
+            f"against a lower band edge of {floor:.3f} over {reps} replicates"
+        )

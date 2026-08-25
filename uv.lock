@@ -2206,6 +2206,14 @@ wheels = [
 ]
 
 [[package]]
+name = "simcheck"
+version = "0.1.0.post3.dev0+d3522ae"
+source = { git = "https://github.com/finite-sample/simcheck#d3522ae43e823606629b6eb3cfae30a3022b9eaa" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2243,6 +2251,7 @@ wheels = [
 
 [[package]]
 name = "sortition"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
@@ -2310,6 +2319,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "simcheck" },
     { name = "sortition", extra = ["all"] },
 ]
 docs = [
@@ -2319,46 +2329,35 @@ docs = [
     { name = "sphinx" },
     { name = "sphinx-copybutton" },
 ]
+test = [
+    { name = "hypothesis" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "simcheck" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.43.67" },
-    { name = "duckdb", marker = "extra == 'all'", specifier = ">=1.0" },
-    { name = "duckdb", marker = "extra == 'cli'", specifier = ">=1.0" },
     { name = "duckdb", marker = "extra == 'eval'", specifier = ">=1.0" },
-    { name = "duckdb", marker = "extra == 'train'", specifier = ">=1.0" },
-    { name = "lightgbm", marker = "extra == 'all'", specifier = ">=4.5" },
     { name = "lightgbm", marker = "extra == 'train'", specifier = ">=4.5" },
-    { name = "litellm", marker = "extra == 'all'", specifier = ">=1.96.0" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.96.0" },
     { name = "numpy", specifier = ">=2.5.2" },
-    { name = "polars", marker = "extra == 'all'", specifier = ">=1.43.2" },
-    { name = "polars", marker = "extra == 'cli'", specifier = ">=1.43.2" },
     { name = "polars", marker = "extra == 'eval'", specifier = ">=1.43.2" },
-    { name = "polars", marker = "extra == 'train'", specifier = ">=1.43.2" },
-    { name = "prometheus-client", marker = "extra == 'all'", specifier = ">=0.20" },
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.20" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.3.4" },
-    { name = "pyarrow", marker = "extra == 'all'", specifier = ">=25.0.1" },
-    { name = "pyarrow", marker = "extra == 'cli'", specifier = ">=25.0.1" },
     { name = "pyarrow", marker = "extra == 'eval'", specifier = ">=25.0.1" },
-    { name = "pyarrow", marker = "extra == 'train'", specifier = ">=25.0.1" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rich", marker = "extra == 'all'", specifier = ">=13.0" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
-    { name = "scikit-learn", marker = "extra == 'all'", specifier = ">=1.5" },
-    { name = "scikit-learn", marker = "extra == 'cli'", specifier = ">=1.5" },
     { name = "scikit-learn", marker = "extra == 'eval'", specifier = ">=1.5" },
-    { name = "scikit-learn", marker = "extra == 'train'", specifier = ">=1.5" },
-    { name = "scipy", marker = "extra == 'all'", specifier = ">=1.14" },
-    { name = "scipy", marker = "extra == 'cli'", specifier = ">=1.14" },
     { name = "scipy", marker = "extra == 'eval'", specifier = ">=1.14" },
-    { name = "scipy", marker = "extra == 'train'", specifier = ">=1.14" },
-    { name = "typer", marker = "extra == 'all'", specifier = ">=0.27.1" },
+    { name = "sortition", extras = ["eval"], marker = "extra == 'cli'" },
+    { name = "sortition", extras = ["eval"], marker = "extra == 'train'" },
+    { name = "sortition", extras = ["eval", "train", "litellm", "cli", "metrics"], marker = "extra == 'all'" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.27.1" },
 ]
-provides-extras = ["all", "cli", "eval", "litellm", "metrics", "postgres", "s3", "train"]
+provides-extras = ["eval", "train", "litellm", "metrics", "s3", "postgres", "cli", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2370,6 +2369,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.16.2" },
+    { name = "simcheck", git = "https://github.com/finite-sample/simcheck" },
     { name = "sortition", extras = ["all"] },
 ]
 docs = [
@@ -2378,6 +2378,12 @@ docs = [
     { name = "py-canon", git = "https://github.com/gojiplus/py-canon?rev=v1" },
     { name = "sphinx", specifier = ">=8" },
     { name = "sphinx-copybutton" },
+]
+test = [
+    { name = "hypothesis", specifier = ">=6.165.2" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "simcheck", git = "https://github.com/finite-sample/simcheck" },
 ]
 
 [[package]]
