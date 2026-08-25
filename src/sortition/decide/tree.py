@@ -73,6 +73,19 @@ class TreePolicy:
     be zero -- a policy that claims to price cost and cannot is worse than one
     that never claimed to."""
 
+    cost_scale: float = 0.0
+    """Dollars that one unit of ``cost_weight`` is worth, fixed when the policy
+    was fitted: the mean predicted cost over the training log.
+
+    A fixed scale rather than each request's own min and max. Normalizing within
+    the eligible set looks equivalent and destroys the thing this policy exists
+    to use: a bill is size times price, so both the numerator and the spread
+    scale with the request, they cancel, and every request ends up with the same
+    penalties -- the cheapest arm at zero and the dearest at exactly one, whether
+    it is a 200-token call or a 20,000-token one. Against a fixed scale the
+    penalty grows with the request, which is what lets the premium arm be worth
+    taking when it is cheap and not when it is not."""
+
     cost_weight: float = 0.0
     name: str = "tree"
     _booster: Any = field(default=None, init=False, repr=False, compare=False)
@@ -192,7 +205,7 @@ class TreePolicy:
             return quality
 
         costs = self.predict_cost(features, eligible)
-        return _discount(quality, costs, self.cost_weight, eligible)
+        return _discount(quality, costs, self.cost_weight, self.cost_scale, eligible)
 
     def score_matrix(
         self, features: list[dict[str, Any]], eligible: NDArray[np.bool_]
@@ -246,37 +259,44 @@ def _discount(
     quality: dict[str, float],
     costs: dict[str, float],
     weight: float,
+    scale: float,
     eligible: tuple[str, ...],
 ) -> dict[str, float]:
-    """Subtract cost, normalized within the eligible set, from quality.
+    """Subtract cost, measured against a fixed scale, from quality.
 
-    Normalizing within the eligible set rather than globally is what lets the
-    weight mean the same thing whatever mix of arms a request sees: it is always
-    "how much predicted quality the dearest arm has to buy to be worth taking
-    over the cheapest".
+    ``weight`` is how much outcome one ``scale``-worth of spend is allowed to
+    cost, so at the default scale -- the mean bill over the training log -- a
+    weight of 1.0 says an average-priced request may give up a full point of
+    outcome. A request costing three times the average is charged three times as
+    much, which is the whole reason cost is predicted per request.
 
     Args:
         quality: Predicted outcome per arm.
         costs: Predicted cost per arm.
         weight: The exchange rate between the two.
+        scale: Dollars per unit of weight.
         eligible: Arms surviving the hard filter, in order.
 
     Returns:
         A score per arm.
     """
-    values = [costs.get(arm, 0.0) for arm in eligible]
-    spread = max(values) - min(values)
-    if spread <= 0.0:
+    if scale <= 0.0:
         return quality
-    cheapest = min(values)
+    cheapest = min(costs.get(arm, 0.0) for arm in eligible)
+    # Relative to the cheapest eligible arm, so a request whose every option is
+    # expensive is not penalised for having no cheap option.
     return {
-        arm: quality[arm] - weight * ((costs.get(arm, 0.0) - cheapest) / spread)
+        arm: quality[arm] - weight * ((costs.get(arm, 0.0) - cheapest) / scale)
         for arm in eligible
     }
 
 
 def discount_matrix(
-    quality: FloatArray, cost: FloatArray, eligible: NDArray[np.bool_], weight: float
+    quality: FloatArray,
+    cost: FloatArray,
+    eligible: NDArray[np.bool_],
+    weight: float,
+    scale: float,
 ) -> FloatArray:
     """The batched form of :func:`_discount`, over a whole log at one weight.
 
@@ -285,17 +305,14 @@ def discount_matrix(
         cost: ``(n, K)`` predicted costs.
         eligible: ``(n, K)`` mask of arms surviving the hard filter.
         weight: The exchange rate between quality and cost.
+        scale: Dollars per unit of weight.
 
     Returns:
         ``(n, K)`` scores, with ineligible entries left at ``-inf``.
     """
     scores = np.where(eligible, quality, -np.inf)
-    if weight == 0.0:
+    if weight == 0.0 or scale <= 0.0:
         return scores
     masked = np.where(eligible, cost, np.nan)
     low = np.nanmin(masked, axis=1, keepdims=True)
-    spread = np.nanmax(masked, axis=1, keepdims=True) - low
-    # A request where every eligible arm costs the same has no trade-off to make.
-    safe = np.where(spread > 0.0, spread, 1.0)
-    penalty = np.where(spread > 0.0, (masked - low) / safe, 0.0)
-    return np.where(eligible, quality - weight * penalty, -np.inf)
+    return np.where(eligible, quality - weight * ((masked - low) / scale), -np.inf)

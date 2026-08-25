@@ -375,6 +375,20 @@ def train(
     )
     from sortition.train import train as fit
 
+    if not tune_cost_weight and (
+        budget is not None or tolerance is not None or tune != 0.2
+    ):
+        raise typer.BadParameter(
+            "--budget, --tolerance and --tune only apply with --tune-cost-weight; "
+            "without it the cost weight is whatever --cost-weight says, and a "
+            "budget you asked for would be silently dropped"
+        )
+    if tune_cost_weight and cost_weight != 0.0:
+        raise typer.BadParameter(
+            "--cost-weight sets the exchange rate by hand and --tune-cost-weight "
+            "chooses it from the log; pass one or the other"
+        )
+
     frame = _load(log)
 
     if tune_cost_weight:
@@ -425,6 +439,29 @@ def train(
     target = PolicyTarget(policy=policy, epsilon=epsilon, name=artifact.policy_version)
     estimate = evaluate(held_out, target, metric=metric, estimator="dr")
     observed = float(held_out.get_column(metric).drop_nulls().to_numpy().mean())
+
+    if tune_cost_weight and swept.chosen.cost_weight != 0.0:
+        # The saving printed with the frontier was measured on the rows the
+        # winning weight was selected on, so it is the number most likely to be
+        # flattered by the search. Re-measure the same trade-off here, against
+        # the cost-blind policy, on rows neither the boosters nor the sweep saw.
+        from sortition.eval import compare
+
+        blind = PolicyTarget(
+            policy=swept.policy_at(0.0), epsilon=epsilon, name="cost_weight=0"
+        )
+        for outcome in compare(
+            held_out,
+            a=blind,
+            b=target,
+            metrics=(metric, swept.cost_metric),
+            seed=seed,
+        ):
+            low, high = outcome.difference_interval
+            typer.echo(
+                f"  held-out {outcome.metric} vs ignoring cost: "
+                f"{outcome.difference:+.6g} [{low:+.6g}, {high:+.6g}]"
+            )
 
     typer.echo("")
     typer.echo(f"on {held_out.height} held-out rows:")
@@ -491,10 +528,6 @@ def main() -> None:
     app()
 
 
-if __name__ == "__main__":
-    main()
-
-
 def _echo_frontier(swept: Any) -> None:
     """Print the measured quality/price frontier and the point taken from it.
 
@@ -552,3 +585,7 @@ def _echo_frontier(swept: Any) -> None:
             f"\nchose cost_weight={chosen.cost_weight:g}: saves "
             f"{chosen.saving:.3g} of {swept.cost_metric} per request, {spent}."
         )
+
+
+if __name__ == "__main__":
+    main()

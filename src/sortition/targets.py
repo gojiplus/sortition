@@ -282,7 +282,12 @@ class PolicyTarget:
             for arm in survivors:
                 survivor_mask[row, index[arm]] = True
             scores = self.policy.score(row_features, survivors)
-            best = max(survivors, key=lambda arm: (scores.get(arm, 0.0), arm))
+            # Ties break toward the arm that sorts first, which is what
+            # `DecisionEngine` does when it ranks by (-score, arm). Taking the
+            # last one here instead would mean a policy stops evaluating as the
+            # policy that serves, on exactly the rows where the model is
+            # indifferent.
+            best = min(survivors, key=lambda arm: (-scores.get(arm, 0.0), arm))
             greedy[row, index[best]] = 1.0
 
         # Rows with an empty eligible set keep an all-zero row rather than

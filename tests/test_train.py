@@ -144,8 +144,11 @@ class TestTraining:
 
     def test_cost_weight_shifts_the_choice_toward_cheaper_arms(self) -> None:
         logs = _logs(n=4_000)
+        # A large request. The penalty is the dollar gap over a fixed scale, so a
+        # 300-token call is barely penalised however high the weight -- correctly,
+        # since moving it saves almost nothing.
         features = {
-            "n_tokens": 300.0,
+            "n_tokens": 4_000.0,
             "code_fraction": 0.5,
             "context_tokens": 2_000.0,
             "tools_required": False,
@@ -225,6 +228,49 @@ class TestTraining:
         large = policy.predict_cost({**base, "n_tokens": 2_000.0}, arms)
         assert (max(large.values()) - min(large.values())) > 2.0 * (
             max(small.values()) - min(small.values())
+        )
+
+    def test_the_penalty_scales_with_the_request_and_does_not_normalize_away(
+        self,
+    ) -> None:
+        # The whole point of pricing per request. Normalizing cost within each
+        # request's eligible set cancels exactly this: with cost = size * price,
+        # both the numerator and the spread scale by size, so every request gets
+        # the same penalties and the dearest arm is always charged the maximum.
+        # The scale has to be fixed at training time, not per request.
+        policy = train(_logs(n=8_000), cost_weight=1.0).policy
+        arms = policy.arms
+        base = {
+            "code_fraction": 0.5,
+            "context_tokens": 1_000.0,
+            "tools_required": False,
+        }
+
+        def penalty(tokens: float) -> dict[str, float]:
+            features = {**base, "n_tokens": tokens}
+            quality = policy.predict(features, arms)
+            scored = policy.score(features, arms)
+            return {arm: quality[arm] - scored[arm] for arm in arms}
+
+        small, large = penalty(500.0), penalty(5_000.0)
+        dearest = max(
+            arms,
+            key=lambda a: policy.predict_cost({**base, "n_tokens": 500.0}, arms)[a],
+        )
+        # It grows with the request rather than being pinned. How much depends on
+        # the booster, which compresses predicted cost near the edges of what it
+        # saw; the assertion below is the one about this policy's arithmetic.
+        assert large[dearest] > 1.5 * small[dearest], (small[dearest], large[dearest])
+
+        # The penalty is exactly the dollar gap over the fixed scale, so the two
+        # ratios agree. Per-set normalization would make the left side 1.0 for
+        # any pair of requests, which is the defect this guards.
+        def gap(tokens: float) -> float:
+            costs = policy.predict_cost({**base, "n_tokens": tokens}, arms)
+            return costs[dearest] - min(costs.values())
+
+        assert large[dearest] / small[dearest] == pytest.approx(
+            gap(5_000.0) / gap(500.0), rel=1e-6
         )
 
     def test_a_cost_weight_with_no_cost_column_is_refused(self) -> None:

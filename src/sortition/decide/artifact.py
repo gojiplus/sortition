@@ -80,6 +80,7 @@ def _payload_of(policy: Policy) -> tuple[str, dict[str, Any], tuple[str, ...]]:
                 "feature_spec": list(policy.feature_spec),
                 "arms": list(policy.arms),
                 "cost_booster_text": policy.cost_booster_text,
+                "cost_scale": policy.cost_scale,
                 "cost_weight": policy.cost_weight,
                 "name": policy.name,
             },
@@ -131,6 +132,7 @@ def _policy_from(kind: str, payload: dict[str, Any]) -> Policy:
             feature_spec=tuple(payload["feature_spec"]),
             arms=tuple(payload["arms"]),
             cost_booster_text=payload.get("cost_booster_text"),
+            cost_scale=float(payload.get("cost_scale", 0.0)),
             cost_weight=float(payload.get("cost_weight", 0.0)),
             name=payload.get("name", "tree"),
         )

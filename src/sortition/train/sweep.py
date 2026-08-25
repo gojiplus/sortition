@@ -308,31 +308,34 @@ def probabilities_at(
     eligible: BoolArray,
     *,
     cost_weight: float,
+    cost_scale: float,
     epsilon: float,
 ) -> FloatArray:
     """Action probabilities a tree policy would produce, for a whole log at once.
 
     Mirrors :class:`~sortition.targets.PolicyTarget` on a ``TreePolicy``: greedy
     over the discounted score, then the shared epsilon floor. Ties break toward
-    the arm that sorts last, which is what the per-row path does; a test asserts
-    the two agree, because a fast path that quietly disagreed would tune a weight
-    for a policy that never ships.
+    the arm that sorts first, matching :class:`~sortition.decide.engine.DecisionEngine`,
+    because the policy that gets tuned has to be the policy that gets served.
 
     Args:
         quality: ``(n, K)`` predicted outcomes.
         cost: ``(n, K)`` predicted costs.
         eligible: ``(n, K)`` mask of arms surviving the hard filter.
         cost_weight: The weight to score at.
+        cost_scale: Dollars per unit of weight, from the fitted policy.
         epsilon: The exploration floor.
 
     Returns:
         An ``(n, K)`` array whose rows sum to 1.
     """
-    scores = discount_matrix(quality, cost, eligible, cost_weight)
-    k = scores.shape[1]
+    scores = discount_matrix(quality, cost, eligible, cost_weight, cost_scale)
     greedy = np.zeros_like(scores)
-    best = (k - 1) - scores[:, ::-1].argmax(axis=1)
-    greedy[np.arange(len(scores)), best] = 1.0
+    # argmax takes the first maximum, which is the lowest arm index. Arms are in
+    # sorted order, so that is the lexicographically smallest name -- the same
+    # arm `DecisionEngine` picks, since it sorts by (-score, arm). Breaking ties
+    # the other way would tune a weight for a policy that is not the one served.
+    greedy[np.arange(len(scores)), scores.argmax(axis=1)] = 1.0
     return apply_epsilon_floor(greedy, eligible, epsilon)
 
 
@@ -399,7 +402,11 @@ def sweep(
             "is no price to trade quality against and nothing to sweep"
         )
 
-    data = tune_rows if isinstance(tune_rows, EvalArrays) else to_arrays(tune_rows)
+    data = (
+        tune_rows
+        if isinstance(tune_rows, EvalArrays)
+        else to_arrays(tune_rows, metrics=(metric, cost_metric))
+    )
     if data.arms != policy.arms:
         raise ValueError(
             f"the tuning rows describe arms {data.arms} but the policy was fitted "
@@ -419,7 +426,12 @@ def sweep(
     targets = {
         w: _Precomputed(
             probabilities_at(
-                quality, cost, data.eligible, cost_weight=w, epsilon=epsilon
+                quality,
+                cost,
+                data.eligible,
+                cost_weight=w,
+                cost_scale=policy.cost_scale,
+                epsilon=epsilon,
             ),
             name=f"cost_weight={w:g}",
         )
@@ -450,7 +462,9 @@ def sweep(
                 quality_difference=on_quality.difference,
                 quality_difference_interval=on_quality.difference_interval,
                 cost_difference=on_cost.difference,
-                trustworthy=on_quality.b.trustworthy and on_cost.b.trustworthy,
+                # Both sides: a difference against a baseline with too little
+                # overlap is not a claim the log supports either.
+                trustworthy=on_quality.trustworthy and on_cost.trustworthy,
             )
         )
 
@@ -510,11 +524,19 @@ def _select(
         ValueError: If nothing on the grid comes in under ``budget``.
     """
     if budget is not None:
-        affordable = [p for p in frontier if p.cost <= budget]
+        # Same bar as tolerance mode. An estimate the package refuses to report
+        # is not one to deploy a policy on because it happens to look cheap.
+        affordable = [p for p in frontier if p.cost <= budget and p.trustworthy]
         if not affordable:
-            cheapest = min(frontier, key=lambda p: p.cost)
+            supported = [p for p in frontier if p.trustworthy]
+            if not supported:
+                raise ValueError(
+                    "no point on the grid is trustworthy on these rows, so no "
+                    "budget can be honored; run `sortition doctor` on the log"
+                )
+            cheapest = min(supported, key=lambda p: p.cost)
             raise ValueError(
-                f"no cost weight on the grid comes in under a budget of "
+                f"no trustworthy cost weight comes in under a budget of "
                 f"{budget:.6g} per request; the cheapest is {cheapest.cost:.6g} "
                 f"at weight {cheapest.cost_weight:g}. Widen the grid, or the "
                 "budget is not reachable by routing alone."

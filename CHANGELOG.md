@@ -27,8 +27,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and splits three ways -- fit, tune, report -- because choosing a weight on the
   rows the result is quoted on is the same error the train/test split prevents,
   one level up. On the simulator, where the true cost of every arm on every
-  request is known, the tuned policy bills 39% less than the router that produced
-  the logs and scores better on quality; ignoring cost would have billed more
+  request is known, the tuned policy bills 35% less than the router that produced
+  the logs and scores 0.13 better on quality; ignoring cost would have billed more
   than the incumbent.
 - `tests/test_clean_cases.py`: problems whose optimum is stated in advance --
   identical quality at ten times the price, a dominated arm, a noiseless price
@@ -52,6 +52,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   zero straddles it at every sample size. Two arms of identical quality where one
   costs ten times more -- the one trade nobody would argue with -- was refused.
   Zero is still accepted and now means "do not trade".
+- **The cost penalty is measured against a scale fixed at training time, not
+  each request's own spread.** Normalizing within the eligible set looks
+  equivalent and cancels the very signal the per-request cost model adds: a bill
+  is size times price, so both the numerator and the spread scale with the
+  request, and every request ends up with the cheapest arm at zero and the
+  dearest at exactly one whether it is a 200-token call or a 20,000-token one. On
+  two arms it cancels completely. `TreePolicy.cost_scale` records the average gap
+  between the dearest and cheapest arm over the training log, so a weight of 1.0
+  means an average-spread request may give up a point of outcome to move to the
+  cheapest arm, and a request with twice the spread gives up twice as much. Found
+  by independent review; the first attempt at a fix scaled by the mean bill
+  instead, which made a weight of 1.0 worth 2.6 points of outcome and collapsed
+  the whole grid to "always cheapest".
 - **A trained policy now prices cost per request, not per arm.** `TreePolicy`
   charged every request the arm's mean cost over the whole training log, so a
   200-token call and a 20k-token call were priced identically and the cost term

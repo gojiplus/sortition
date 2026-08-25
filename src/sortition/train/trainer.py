@@ -197,6 +197,31 @@ def train(
             )
             cost_text = cost_booster.booster_.model_to_string()
 
+    # The average gap between the dearest and cheapest arm on a request, which is
+    # what cost_weight is measured against: at weight 1.0 an average-spread
+    # request will give up a full point of outcome to move from the dearest arm
+    # to the cheapest, and a request with twice the spread gives up twice that.
+    #
+    # The spread rather than the mean bill. The bill is dominated by whichever
+    # arms the incumbent happened to favour, so scaling by it makes the weight
+    # mean something different on every log -- on the simulator the dearest arm
+    # sits 2.6 mean-bills above the cheapest, so a weight of 1.0 became a penalty
+    # of 2.6 and the whole grid collapsed to "always cheapest".
+    #
+    # Recorded in the artifact so a deployed policy charges what it was tuned to
+    # charge; deriving it live would move with the traffic mix.
+    cost_scale = 0.0
+    if cost_text is not None:
+        priced_grid = np.hstack([matrix(data.features, spec), onehot_all])
+        per_arm = np.vstack(
+            [
+                _predict_cost_for_arm(cost_booster, priced_grid, arm, len(data.arms))
+                for arm in range(len(data.arms))
+            ]
+        )
+        spreads = per_arm.max(axis=0) - per_arm.min(axis=0)
+        cost_scale = float(spreads.mean())
+
     if cost_weight != 0.0 and cost_text is None:
         raise ValueError(
             f"cost_weight={cost_weight} was asked for but the log has no usable "
@@ -209,6 +234,7 @@ def train(
         feature_spec=spec,
         arms=data.arms,
         cost_booster_text=cost_text,
+        cost_scale=cost_scale,
         cost_weight=cost_weight,
         name=name or "tree",
     )
@@ -228,6 +254,26 @@ def train(
         feature_spec=spec,
         arms=data.arms,
     )
+
+
+def _predict_cost_for_arm(
+    booster: Any, design: np.ndarray, arm: int, n_arms: int
+) -> np.ndarray:
+    """Predicted cost of every training request, had it gone to one arm.
+
+    Args:
+        booster: The fitted cost model.
+        design: Features concatenated with the arm one-hot block.
+        arm: The arm index to score every row under.
+        n_arms: Width of the one-hot block.
+
+    Returns:
+        One predicted cost per row.
+    """
+    swapped = design.copy()
+    swapped[:, -n_arms:] = 0.0
+    swapped[:, design.shape[1] - n_arms + arm] = 1.0
+    return np.maximum(np.asarray(booster.predict(swapped), dtype=np.float64), 0.0)
 
 
 def _fit(

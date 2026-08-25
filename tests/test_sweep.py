@@ -14,6 +14,9 @@ grid point got luckiest on the split it was scored on.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import polars as pl
 import pytest
@@ -21,7 +24,8 @@ import pytest
 from sortition.sim import epsilon_greedy_policy, make_problem, sample_logs
 from sortition.sim.to_frame import to_frame
 from sortition.targets import PolicyTarget
-from sortition.train import split_three_ways, sweep, train
+from sortition.train import FrontierPoint, split_three_ways, sweep, train
+from sortition.train.sweep import probabilities_at
 
 
 def _problem_and_logs(
@@ -128,6 +132,103 @@ class TestFrontier:
             )
             direct = evaluate(tune, target, metric="outcome", estimator="dr")
             assert point.quality == pytest.approx(direct.value, rel=1e-6)
+
+
+class TestReviewFindings:
+    """Regressions for defects an independent review found, one test each."""
+
+    def test_a_custom_metric_survives_the_conversion(self) -> None:
+        # `to_arrays` collects its own default metrics, so a documented custom
+        # `metric` was dropped on the way in and surfaced as a KeyError deep in
+        # the frontier loop rather than as anything an operator could read.
+        _, _, frame = _problem_and_logs(n=8_000)
+        renamed = frame.rename({"outcome": "thumbs"})
+        fit, tune, _ = split_three_ways(renamed, seed=0)
+
+        result = sweep(fit, tune, grid=(0.0, 1.0), metric="thumbs", seed=0)
+
+        assert result.metric == "thumbs"
+        assert len(result.frontier) == 2
+
+    def test_a_budget_will_not_deploy_an_untrustworthy_point(self) -> None:
+        # Budget mode used point estimates directly, so a thin log could hand
+        # back whichever unsupported point looked cheapest -- the one case the
+        # rest of the package refuses to report at all. Built by hand because a
+        # simulated log good enough to sweep is also good enough to trust, so
+        # the case never arises there and a test on one proves nothing.
+        from sortition.train.sweep import _select
+
+        frontier = (
+            _point(0.0, quality=0.70, cost=0.010, trustworthy=True),
+            _point(1.0, quality=0.90, cost=0.004, trustworthy=False),
+            _point(2.0, quality=0.65, cost=0.006, trustworthy=True),
+        )
+
+        chosen = _select(frontier, budget=0.008, tolerance=0.01)
+
+        # The cheap, high-quality point is the one the log cannot support.
+        assert chosen.cost_weight == 2.0
+
+    def test_a_budget_no_trustworthy_point_can_meet_is_refused(self) -> None:
+        from sortition.train.sweep import _select
+
+        frontier = (
+            _point(0.0, quality=0.70, cost=0.010, trustworthy=True),
+            _point(1.0, quality=0.90, cost=0.001, trustworthy=False),
+        )
+        with pytest.raises(ValueError, match="budget"):
+            _select(frontier, budget=0.005, tolerance=0.01)
+
+    def test_the_batched_tie_break_matches_the_deployed_engine(self) -> None:
+        # On a tie the sweep must choose the arm the engine would serve. Taking
+        # the other one tunes a weight for a policy that never runs.
+        from sortition.decide.engine import DecisionEngine, ExplorationConfig
+
+        _, _, frame = _problem_and_logs(n=6_000)
+        policy = train(frame, seed=0).policy
+        arms = policy.arms
+        engine = DecisionEngine(
+            policy=_Tied(arms), exploration=ExplorationConfig(epsilon=0.0)
+        )
+        served = engine.decide(features={}, eligible=list(arms)).chosen_arm
+
+        tied = np.zeros((1, len(arms)))
+        mask = np.ones((1, len(arms)), dtype=bool)
+        probs = probabilities_at(
+            tied, tied, mask, cost_weight=0.0, cost_scale=1.0, epsilon=0.0
+        )
+        assert arms[int(probs[0].argmax())] == served
+
+
+def _point(
+    weight: float, *, quality: float, cost: float, trustworthy: bool
+) -> FrontierPoint:
+    """A frontier point with the fields selection actually reads."""
+    return FrontierPoint(
+        cost_weight=weight,
+        quality=quality,
+        quality_interval=(quality - 0.01, quality + 0.01),
+        cost=cost,
+        cost_interval=(cost, cost),
+        quality_difference=0.0,
+        quality_difference_interval=(0.0, 0.0),
+        cost_difference=0.0,
+        trustworthy=trustworthy,
+    )
+
+
+@dataclass(frozen=True)
+class _Tied:
+    """A policy that scores every arm identically, to expose the tie rule."""
+
+    arms: tuple[str, ...]
+    name: str = "tied"
+
+    def score(
+        self, features: dict[str, Any], eligible: tuple[str, ...]
+    ) -> dict[str, float]:
+        """Give every eligible arm the same score."""
+        return dict.fromkeys(eligible, 0.5)
 
 
 class TestSelection:
@@ -248,7 +349,9 @@ def _true(problem, policy, epsilon: float) -> dict[str, float]:
     ]
     eligible = problem.eligible
     quality, cost = policy.score_matrix(features, eligible)
-    scores = discount_matrix(quality, cost, eligible, policy.cost_weight)
+    scores = discount_matrix(
+        quality, cost, eligible, policy.cost_weight, policy.cost_scale
+    )
     k = scores.shape[1]
     greedy = np.zeros_like(scores)
     greedy[np.arange(len(scores)), (k - 1) - scores[:, ::-1].argmax(axis=1)] = 1.0

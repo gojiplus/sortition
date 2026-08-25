@@ -104,6 +104,13 @@ ends. The cost model is a Tweedie-loss booster over the same features -- spend i
 non-negative, right-skewed, and has a point mass at exactly zero when a call is
 served from cache.
 
+One consequence is worth knowing before you deploy it: the penalty is a dollar
+gap, so a short request is barely penalised at any weight and is routed almost
+entirely on quality. Cost-aware routing bites on the expensive requests, which is
+where the money is, and leaves the cheap ones alone. If you want a policy that
+always takes the cheaper arm regardless of what the saving is worth, that is a
+rules table and not this.
+
 ### Does it actually save money
 
 On a real log this is unanswerable, which is what the simulator is for: it knows
@@ -117,11 +124,12 @@ requests, five arms, a fifty-fold price ladder:
 | always the cheapest arm | 0.4440 | 1,156 |
 | always the dearest arm | 0.5441 | 57,793 |
 | learned, cost ignored | 0.7217 | 23,955 |
-| learned, tuned at `--tolerance 0.05` | 0.7097 | **11,348** |
+| learned, tuned at `--tolerance 0.05` | 0.7147 | **12,019** |
 
-Thirty-nine percent cheaper than the router that produced the logs, and better on
-quality, which is the combination worth having. Ignoring cost would have been
-*more* expensive than the incumbent.
+Thirty-five percent cheaper than the router that produced the logs, and better on
+quality by 0.13, which is the combination worth having. Ignoring cost would have
+been *more* expensive than the incumbent, which is the case for the sweep
+existing at all.
 
 Optimality is the harder question, and the same ground truth answers it. Sweeping
 `argmax_a [q(x,a) - lambda*cost(x,a)]` over lambda traces the best curve any
@@ -130,19 +138,20 @@ quality:
 
 | what the policy ranks by | $ per 1M | vs the best possible |
 |---|---|---|
-| true quality, true cost | 4,324 | 1.00x |
-| true quality, **learned** cost | 4,331 | 1.00x |
-| **learned** quality, true cost | 11,753 | 2.72x |
-| best any model could do from the four logged features | 5,254 | 1.22x |
+| true quality, true cost | 4,162 | 1.00x |
+| true quality, **learned** cost | 4,212 | 1.01x |
+| **learned** quality, true cost | 12,122 | 2.91x |
+| what the policy actually ships | 12,019 | 2.89x |
+| the best any model could do from the four logged features | 5,119 | 1.23x |
 
-Replacing the learned prices with perfect ones moves the bill by 0.2%, so the
-cost model is worth what knowing the costs exactly is worth. The gap that remains
+Replacing the learned prices with perfect ones moves the bill by 1%, so the cost
+model is worth very nearly what knowing the costs exactly is worth. The gap that remains
 is the quality model, and it is not a loss function or a capacity problem --
 squared error against binary logloss, weighted against unweighted, and four sizes
 of tree all land within a percent of each other. It is estimation error on a
 Bernoulli outcome: choosing the wrong arm is nearly free when arms cost the same
 and expensive against a fifty-fold ladder, which is why a 53% top-one rate costs
-2.7x.
+2.9x.
 
 More logs help, up to a point. Repeating the whole exercise at five sizes takes
 the gap from 4.7x at 30k rows to about 1.9x at 240k, where it flattens rather
@@ -152,8 +161,8 @@ understanding before anyone promises it away. These are single runs at one seed,
 so read the trend and not the third digit.
 
 Exploration is not free either. The same frontier without the 5% floor reaches
-that quality for $3,032 per 1M rather than $4,324, so keeping the log answerable
-costs about 43% of the bill here. That is the price of being able to run any of
+that quality for $3,084 per 1M rather than $4,162, so keeping the log answerable
+costs about a third of the bill here. That is the price of being able to run any of
 this next quarter, and it is a number rather than a principle.
 
 ## Try it in thirty seconds
