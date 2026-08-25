@@ -160,6 +160,6 @@ Validated against a simulator with known ground truth and a mocked LiteLLM, not
 against real production traffic. Sink throughput under sustained load and parquet
 part-count growth over weeks are untested.
 
-[Unreleased]: https://github.com/gojiplus/sortition/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/gojiplus/sortition/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/gojiplus/sortition/commits/main
+[0.2.0]: https://github.com/gojiplus/sortition/commits/main
 [0.1.0]: https://github.com/gojiplus/sortition/commits/main
