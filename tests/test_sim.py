@@ -45,6 +45,21 @@ class TestExactValue:
         policy = softmax_policy(np.random.default_rng(0).standard_normal((6, 4)))
         assert problem.value(policy) == problem.value(policy)
 
+    def test_cost_varies_with_request_size(self, problem: BanditProblem) -> None:
+        # A bill is price-per-token times tokens. A cost that is constant per arm
+        # makes the cheap-to-premium ladder the only thing a router can price,
+        # and no per-request cost model has anything to learn from it.
+        assert problem.cost.shape == (problem.n_contexts, problem.n_arms)
+        premium = problem.cost[:, -1]
+        assert premium.max() / premium.min() > 2.0
+
+    def test_the_cost_ladder_survives_within_a_request(
+        self, problem: BanditProblem
+    ) -> None:
+        # Size scales every arm together, so the premium arm is dearer than the
+        # budget arm on every single request, not merely on average.
+        assert bool((np.diff(problem.cost, axis=1) > 0).all())
+
     def test_policies_are_distinguishable(self, problem: BanditProblem) -> None:
         # If every policy had the same value there would be nothing to estimate.
         values = [problem.value(constant_policy(a)) for a in range(problem.n_arms)]

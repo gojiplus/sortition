@@ -57,7 +57,7 @@ def to_frame(
     ]
     features = [
         {
-            "n_tokens": float(x[0] * 100.0 + 300.0),
+            "n_tokens": float(500.0 * np.exp(0.5 * x[0])),
             "code_fraction": float(1.0 / (1.0 + np.exp(-x[1]))),
             "context_tokens": float(abs(x[2]) * 1000.0),
             "tools_required": bool(x[3] > 0.0),

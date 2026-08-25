@@ -144,8 +144,11 @@ class TestTraining:
 
     def test_cost_weight_shifts_the_choice_toward_cheaper_arms(self) -> None:
         logs = _logs(n=4_000)
+        # A large request. The penalty is the dollar gap over a fixed scale, so a
+        # 300-token call is barely penalised however high the weight -- correctly,
+        # since moving it saves almost nothing.
         features = {
-            "n_tokens": 300.0,
+            "n_tokens": 4_000.0,
             "code_fraction": 0.5,
             "context_tokens": 2_000.0,
             "tools_required": False,
@@ -155,11 +158,127 @@ class TestTraining:
         thrifty = train(logs, cost_weight=5.0).policy
         arms = free.arms
 
-        cheapest = min(arms, key=lambda a: free.cost_usd.get(a, 0.0))
+        costs = free.predict_cost(features, arms)
+        cheapest = min(arms, key=lambda a: costs[a])
         best_free = max(arms, key=lambda a: free.score(features, arms)[a])
         best_thrifty = max(arms, key=lambda a: thrifty.score(features, arms)[a])
         # A large enough weight has to move the choice, or the cost term is inert.
         assert best_free != best_thrifty or best_thrifty == cheapest
+
+    def test_predicted_cost_rises_with_the_size_of_the_request(self) -> None:
+        # The defect this replaces: every request was charged the arm's global
+        # mean, so a 20k-token call and a 200-token call were priced the same.
+        policy = train(_logs(n=8_000)).policy
+        arms = policy.arms
+        base = {
+            "code_fraction": 0.5,
+            "context_tokens": 1_000.0,
+            "tools_required": False,
+        }
+        small = policy.predict_cost({**base, "n_tokens": 250.0}, arms)
+        large = policy.predict_cost({**base, "n_tokens": 2_000.0}, arms)
+        for arm in arms:
+            assert large[arm] > 2.0 * small[arm]
+
+    def test_the_cost_model_beats_charging_every_request_the_arm_mean(self) -> None:
+        # Measured against the simulator's noise-free expected cost, on rows the
+        # model never saw, so this is out-of-sample accuracy and not a fit.
+        problem = make_problem(n_contexts=800, n_arms=4, seed=0)
+        weights = np.random.default_rng(0).standard_normal((6, 4))
+        sampled = sample_logs(
+            problem, epsilon_greedy_policy(weights, epsilon=0.5), 12_000, seed=1
+        )
+        frame = to_frame(sampled, problem, fallback_rate=0.0, seed=2)
+
+        fit_on, held_out = np.arange(len(frame)) < 8_000, np.arange(len(frame)) >= 8_000
+        policy = train(frame.filter(fit_on)).policy
+
+        truth = problem.cost[sampled.context_idx[held_out], sampled.action[held_out]]
+        arm_of = [problem.arms[a] for a in sampled.action[held_out]]
+        rows = frame.filter(held_out).get_column("features").to_list()
+
+        predicted = np.array(
+            [
+                policy.predict_cost(f, policy.arms)[a]
+                for f, a in zip(rows, arm_of, strict=True)
+            ]
+        )
+        per_arm_mean = (
+            frame.filter(fit_on).group_by("chosen_arm").agg(pl.col("cost_usd").mean())
+        )
+        means = dict(zip(*per_arm_mean.to_dict(as_series=False).values(), strict=True))
+        constant = np.array([means[a] for a in arm_of])
+
+        learned_mae = float(np.abs(predicted - truth).mean())
+        constant_mae = float(np.abs(constant - truth).mean())
+        assert learned_mae < 0.6 * constant_mae, (learned_mae, constant_mae)
+
+    def test_the_cost_gap_between_arms_widens_with_request_size(self) -> None:
+        # This is what a per-arm constant cannot express, and it is the whole
+        # reason the trade-off is request-conditional: on a short request the
+        # premium arm is barely dearer, so it is worth taking.
+        policy = train(_logs(n=8_000)).policy
+        arms = policy.arms
+        base = {
+            "code_fraction": 0.5,
+            "context_tokens": 1_000.0,
+            "tools_required": False,
+        }
+        small = policy.predict_cost({**base, "n_tokens": 250.0}, arms)
+        large = policy.predict_cost({**base, "n_tokens": 2_000.0}, arms)
+        assert (max(large.values()) - min(large.values())) > 2.0 * (
+            max(small.values()) - min(small.values())
+        )
+
+    def test_the_penalty_scales_with_the_request_and_does_not_normalize_away(
+        self,
+    ) -> None:
+        # The whole point of pricing per request. Normalizing cost within each
+        # request's eligible set cancels exactly this: with cost = size * price,
+        # both the numerator and the spread scale by size, so every request gets
+        # the same penalties and the dearest arm is always charged the maximum.
+        # The scale has to be fixed at training time, not per request.
+        policy = train(_logs(n=8_000), cost_weight=1.0).policy
+        arms = policy.arms
+        base = {
+            "code_fraction": 0.5,
+            "context_tokens": 1_000.0,
+            "tools_required": False,
+        }
+
+        def penalty(tokens: float) -> dict[str, float]:
+            features = {**base, "n_tokens": tokens}
+            quality = policy.predict(features, arms)
+            scored = policy.score(features, arms)
+            return {arm: quality[arm] - scored[arm] for arm in arms}
+
+        small, large = penalty(500.0), penalty(5_000.0)
+        dearest = max(
+            arms,
+            key=lambda a: policy.predict_cost({**base, "n_tokens": 500.0}, arms)[a],
+        )
+        # It grows with the request rather than being pinned. How much depends on
+        # the booster, which compresses predicted cost near the edges of what it
+        # saw; the assertion below is the one about this policy's arithmetic.
+        assert large[dearest] > 1.5 * small[dearest], (small[dearest], large[dearest])
+
+        # The penalty is exactly the dollar gap over the fixed scale, so the two
+        # ratios agree. Per-set normalization would make the left side 1.0 for
+        # any pair of requests, which is the defect this guards.
+        def gap(tokens: float) -> float:
+            costs = policy.predict_cost({**base, "n_tokens": tokens}, arms)
+            return costs[dearest] - min(costs.values())
+
+        assert large[dearest] / small[dearest] == pytest.approx(
+            gap(5_000.0) / gap(500.0), rel=1e-6
+        )
+
+    def test_a_cost_weight_with_no_cost_column_is_refused(self) -> None:
+        # Silently ignoring the weight would ship a policy that says it prices
+        # cost and does not.
+        logs = _logs(n=3_000).drop("cost_usd")
+        with pytest.raises(ValueError, match="cost_usd"):
+            train(logs, cost_weight=1.0)
 
     def test_propensity_weighting_is_recorded_as_a_choice(self) -> None:
         # Both paths must produce a usable policy; the weighting changes what is
