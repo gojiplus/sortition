@@ -37,6 +37,46 @@ def _row(i: int) -> dict[str, object]:
 
 
 class TestDurability:
+    def test_flush_waits_for_an_inflight_background_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sink = ParquetSink(tmp_path, flush_every=1)
+        writing = threading.Event()
+        release = threading.Event()
+        flushing = threading.Event()
+        flushed = threading.Event()
+        write_part = sink._write_part
+
+        def blocked_write(table: str, rows: list[dict[str, object]]) -> None:
+            writing.set()
+            if not release.wait(10):
+                raise TimeoutError("test did not release the background write")
+            write_part(table, rows)
+
+        def flush() -> None:
+            flushing.set()
+            sink.flush()
+            flushed.set()
+
+        monkeypatch.setattr(sink, "_write_part", blocked_write)
+        waiter = threading.Thread(target=flush)
+        try:
+            sink.submit(DECISIONS, _row(0))
+            assert writing.wait(5)
+            assert sink.buffered == 0
+            waiter.start()
+            assert flushing.wait(5)
+            assert not flushed.wait(0.1)
+            release.set()
+            assert flushed.wait(5)
+            assert sink.rows_written == 1
+            assert list(tmp_path.glob("**/*.parquet"))
+        finally:
+            release.set()
+            if waiter.ident is not None:
+                waiter.join(timeout=5)
+            sink.close()
+
     def test_periodic_flush_writes_without_reaching_the_size_threshold(
         self, tmp_path: Path
     ) -> None:
@@ -86,6 +126,8 @@ class TestDurability:
         finally:
             os.kill(proc.pid, signal.SIGKILL)
             proc.wait(timeout=10)
+            if proc.stdout is not None:
+                proc.stdout.close()
 
         store = LogStore(tmp_path, flush_interval=0.2)
         try:

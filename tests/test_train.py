@@ -293,7 +293,8 @@ class TestBeatsTheIncumbent:
     """The only question that decides whether training was worth doing."""
 
     @pytest.fixture(scope="class")
-    def trained(self) -> tuple[pl.DataFrame, object, float]:
+    @staticmethod
+    def trained() -> tuple[pl.DataFrame, object, float]:
         problem = make_problem(n_contexts=800, n_arms=4, seed=0)
         weights = np.random.default_rng(0).standard_normal((6, 4))
         # A deliberately mediocre incumbent, so there is headroom to capture.

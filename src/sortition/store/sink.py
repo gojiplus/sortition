@@ -114,6 +114,7 @@ class BufferedSink:
 
         self._buffers: dict[str, list[dict[str, Any]]] = {t: [] for t in TABLES}
         self._lock = threading.Lock()
+        self._drain_lock = threading.Lock()
         self._wake = threading.Event()
         self._stopping = threading.Event()
         self._thread: threading.Thread | None = None
@@ -198,29 +199,31 @@ class BufferedSink:
         self._drain()
 
     def _drain(self) -> None:
-        for table in list(self._buffers):
-            with self._lock:
-                rows = self._buffers.get(table) or []
-                if not rows:
-                    continue
-                self._buffers[table] = []
-            try:
-                self._write_part(table, rows)
-                self.rows_written += len(rows)
-                self.flushes += 1
-                if self._on_write is not None:
-                    self._on_write(table, len(rows))
-            except Exception:
-                self.rows_dropped += len(rows)
-                if self._on_drop is not None:
-                    self._on_drop(table, len(rows))
-                # Deliberately not re-buffered: a failing disk would otherwise
-                # fill memory retrying rows that will keep failing.
-                logger.exception(
-                    "sortition sink failed to write %d %s rows; they are lost",
-                    len(rows),
-                    table,
-                )
+        # A flush must wait for batches already removed by the writer thread.
+        with self._drain_lock:
+            for table in list(self._buffers):
+                with self._lock:
+                    rows = self._buffers.get(table) or []
+                    if not rows:
+                        continue
+                    self._buffers[table] = []
+                try:
+                    self._write_part(table, rows)
+                    self.rows_written += len(rows)
+                    self.flushes += 1
+                    if self._on_write is not None:
+                        self._on_write(table, len(rows))
+                except Exception:
+                    self.rows_dropped += len(rows)
+                    if self._on_drop is not None:
+                        self._on_drop(table, len(rows))
+                    # Deliberately not re-buffered: a failing disk would otherwise
+                    # fill memory retrying rows that will keep failing.
+                    logger.exception(
+                        "sortition sink failed to write %d %s rows; they are lost",
+                        len(rows),
+                        table,
+                    )
 
     def _write_part(self, table: str, rows: list[dict[str, Any]]) -> None:
         """Persist one batch. Subclasses implement this; it runs on the thread.

@@ -160,7 +160,13 @@ class TestRouting:
     def test_plugin_narrows_to_the_sampled_arm(self) -> None:
         plugin = SortitionPlugin(_engine(epsilon=0.0, arm=PREMIUM))
         router = litellm.Router(model_list=_model_list(), plugins=[plugin])
-        response = asyncio.run(router.acompletion(model="smart", messages=MESSAGES))
+
+        async def run() -> Any:
+            response = await router.acompletion(model="smart", messages=MESSAGES)
+            await _drain()
+            return response
+
+        response = asyncio.run(run())
         # The engine has no exploration and always prefers PREMIUM, so the only
         # deployment LiteLLM could have reached is that one.
         assert response.choices[0].message.content == f"served by {PREMIUM}"
@@ -174,6 +180,7 @@ class TestRouting:
             for _ in range(40):
                 response = await router.acompletion(model="smart", messages=MESSAGES)
                 seen.add(response.choices[0].message.content)
+            await _drain()
             return seen
 
         # Without this, the log can only ever confirm what the policy prefers.
@@ -190,7 +197,12 @@ class TestRouting:
         router = litellm.Router(model_list=_model_list(), plugins=[plugin])
 
         # A bug in sortition must cost one unlogged row, never a failed request.
-        response = asyncio.run(router.acompletion(model="smart", messages=MESSAGES))
+        async def run() -> Any:
+            response = await router.acompletion(model="smart", messages=MESSAGES)
+            await _drain()
+            return response
+
+        response = asyncio.run(run())
         assert response.choices[0].message.content.startswith("served by ")
 
 
@@ -270,7 +282,8 @@ class TestLogging:
 
 class TestEndToEnd:
     @pytest.fixture(scope="class")
-    def traffic(self, tmp_path_factory: pytest.TempPathFactory) -> Any:
+    @staticmethod
+    def traffic(tmp_path_factory: pytest.TempPathFactory) -> Any:
         """Drive a few hundred requests through the whole stack, once."""
         directory = tmp_path_factory.mktemp("traffic")
         store = LogStore(directory / "logs", flush_every=50)
