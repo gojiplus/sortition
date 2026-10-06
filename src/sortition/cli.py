@@ -438,7 +438,7 @@ def train(
     # same logs would flatter any candidate, which is the whole reason for the
     # holdout.
     target = PolicyTarget(policy=policy, epsilon=epsilon, name=artifact.policy_version)
-    estimate = evaluate(held_out, target, metric=metric, estimator="dr")
+    estimate = evaluate(held_out, target, metric=metric, estimator="dr", seed=seed)
     observed = float(held_out.get_column(metric).drop_nulls().to_numpy().mean())
 
     if swept is not None and swept.chosen.cost_weight != 0.0:

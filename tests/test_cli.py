@@ -7,6 +7,7 @@ runs: generate a log, write parquet, read it back, and get an answer.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -252,6 +253,30 @@ def test_train_tunes_the_cost_weight_and_prints_the_whole_frontier(
     for weight in ("0.125", "0.25", "0.5", "1", "2", "4"):
         assert weight in result.output
     assert result.output.count("*") >= 1
+
+
+@pytest.mark.parametrize("tune", [False, True])
+def test_train_uses_requested_seed_for_held_out_evaluation(
+    log_file: Path, tmp_path: Path, tune: bool
+) -> None:
+    from sortition.eval import evaluate
+
+    args = [
+        "train",
+        str(log_file),
+        "--out",
+        str(tmp_path / "policy.json"),
+        "--seed",
+        "73",
+    ]
+    if tune:
+        args.append("--tune-cost-weight")
+    with patch("sortition.eval.evaluate", wraps=evaluate) as evaluation:
+        result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    evaluation.assert_called_once()
+    assert evaluation.call_args.kwargs["seed"] == 73
 
 
 def test_a_tuned_artifact_loads_and_carries_its_cost_model(
