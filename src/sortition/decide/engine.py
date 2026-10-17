@@ -6,7 +6,7 @@ Three stages, in this order, because each depends on the last:
    removed here has no counterfactual — the estimators must not be asked what
    would have happened if we had used it.
 2. **Rank.** Which of the survivors the policy prefers.
-3. **Explore.** How often to try something other than the favourite, and with
+3. **Explore.** How often to try something other than the favorite, and with
    what probability, recorded exactly.
 
 Stage 3 is what makes the log worth keeping. A router with no exploration

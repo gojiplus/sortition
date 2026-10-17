@@ -93,7 +93,7 @@ class TestBettingInterval:
     simultaneously at every sample size, not equal to it at any one. Conservatism
     is the design, so :func:`simcheck.assert_coverage`, which bands the rate on
     both sides of nominal, is the wrong gate here -- it would fail the interval
-    for honouring its own guarantee. Measured coverage at these settings runs
+    for honoring its own guarantee. Measured coverage at these settings runs
     0.98 to 1.00 against a nominal 0.95.
 
     What the floor is, though, still comes from the replicate count:

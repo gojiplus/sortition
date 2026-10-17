@@ -105,7 +105,7 @@ non-negative, right-skewed, and has a point mass at exactly zero when a call is
 served from cache.
 
 One consequence is worth knowing before you deploy it: the penalty is a dollar
-gap, so a short request is barely penalised at any weight and is routed almost
+gap, so a short request is barely penalized at any weight and is routed almost
 entirely on quality. Cost-aware routing bites on the expensive requests, which is
 where the money is, and leaves the cheap ones alone. If you want a policy that
 always takes the cheaper arm regardless of what the saving is worth, that is a

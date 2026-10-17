@@ -1,4 +1,4 @@
-"""A single self-contained HTML page summarising a window of routing traffic.
+"""A single self-contained HTML page summarizing a window of routing traffic.
 
 No server, no CDN, no external fonts: one file that opens from ``file://`` and
 survives being emailed. Charts are inline SVG built here rather than by a
@@ -105,7 +105,7 @@ summary { cursor: pointer; color: var(--text-secondary); font-size: .85rem; }
 # is read out by screen readers -- which a custom div tooltip is not.
 _NOTE = (
     "Hover any mark for its exact value. Every chart has a table view below it, "
-    "so identity is never carried by colour alone."
+    "so identity is never carried by color alone."
 )
 
 
@@ -220,7 +220,7 @@ def _bars(rows: list[tuple[str, float]], fmt: str, slot_of: dict[str, int]) -> s
     Args:
         rows: Label and value pairs.
         fmt: Format spec for the value labels.
-        slot_of: Arm to colour slot, so an arm keeps its colour across charts.
+        slot_of: Arm to color slot, so an arm keeps its color across charts.
 
     Returns:
         Inline SVG.
@@ -288,16 +288,16 @@ def _intervals(rows: list[tuple[str, float, float, float]], fmt: str) -> str:
     for i, (label, value, low, high) in enumerate(rows):
         y = i * row_h + row_h / 2
         crosses = low <= 0.0 <= high
-        colour = "var(--text-secondary)" if crosses else "var(--s1)"
+        color = "var(--text-secondary)" if crosses else "var(--s1)"
         note = "not distinguishable from zero" if crosses else "significant"
         parts.append(
             f'<text x="{pad_l - 12}" y="{y + 4:.0f}" text-anchor="end" font-size="12" '
             f'fill="var(--text-primary)">{_esc(label)}</text>'
             f'<line x1="{x(low):.1f}" y1="{y:.0f}" x2="{x(high):.1f}" y2="{y:.0f}" '
-            f'stroke="{colour}" stroke-width="2"/>'
-            # >=8px marker, ringed in the surface colour so it stays visible
+            f'stroke="{color}" stroke-width="2"/>'
+            # >=8px marker, ringed in the surface color so it stays visible
             # where it overlaps its own interval line.
-            f'<circle cx="{x(value):.1f}" cy="{y:.0f}" r="5" fill="{colour}" '
+            f'<circle cx="{x(value):.1f}" cy="{y:.0f}" r="5" fill="{color}" '
             f'stroke="var(--surface-1)" stroke-width="2">'
             f"<title>{_esc(label)}: {value:{fmt}} "
             f"[{low:{fmt}}, {high:{fmt}}] — {note}</title></circle>"

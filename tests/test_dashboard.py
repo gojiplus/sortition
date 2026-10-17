@@ -84,7 +84,7 @@ class TestVerdictComesFirst:
 
 class TestAccessibility:
     def test_every_chart_has_a_table_view(self, page: str) -> None:
-        # Identity must never be carried by colour alone.
+        # Identity must never be carried by color alone.
         charts = len(re.findall(r"<svg ", page))
         tables = len(re.findall(r"<details>", page))
         assert charts >= 3

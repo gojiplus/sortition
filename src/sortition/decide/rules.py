@@ -9,7 +9,7 @@ changing the decision API, because both satisfy the same `Policy` protocol.
 Rules do two separable things, and the distinction matters downstream. ``exclude``
 is a *hard constraint*: the arm could not have served the request, so there is no
 counterfactual to estimate and the eligible set shrinks. ``prefer`` is a *soft
-ranking*: the arm was available and simply was not favoured, which is exactly the
+ranking*: the arm was available and simply was not favored, which is exactly the
 kind of decision exploration lets us second-guess later.
 """
 

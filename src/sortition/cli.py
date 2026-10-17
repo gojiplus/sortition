@@ -291,7 +291,7 @@ def report(
         bool, typer.Option(help="Exit non-zero when the log cannot support estimates.")
     ] = False,
 ) -> None:
-    """Summarise a window of routing traffic, for forwarding."""
+    """Summarize a window of routing traffic, for forwarding."""
     import polars as pl
 
     from sortition.reporting import build, parse_since, to_markdown, to_terminal
@@ -485,7 +485,7 @@ def train(
 
 @app.command()
 def dashboard(
-    log: Annotated[Path, typer.Argument(help="Log file to visualise.")],
+    log: Annotated[Path, typer.Argument(help="Log file to visualize.")],
     out: Annotated[
         Path, typer.Option("--out", "-o", help="HTML file to write.")
     ] = Path("dashboard.html"),
@@ -541,7 +541,7 @@ def _echo_frontier(swept: Any) -> None:
     """
     typer.echo("")
     typer.echo(f"cost-weight frontier, on {swept.n_tune} tuning rows:")
-    # The cost column is named for the metric rather than labelled "per
+    # The cost column is named for the metric rather than labeled "per
     # request": these are dollars only if the log's cost column holds dollars,
     # and a bare number under a generic heading invites the reader to assume.
     typer.echo(

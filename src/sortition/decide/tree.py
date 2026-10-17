@@ -284,7 +284,7 @@ def _discount(
         return quality
     cheapest = min(costs.get(arm, 0.0) for arm in eligible)
     # Relative to the cheapest eligible arm, so a request whose every option is
-    # expensive is not penalised for having no cheap option.
+    # expensive is not penalized for having no cheap option.
     return {
         arm: quality[arm] - weight * ((costs.get(arm, 0.0) - cheapest) / scale)
         for arm in eligible

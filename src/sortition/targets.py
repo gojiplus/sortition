@@ -318,7 +318,7 @@ def parse_target(spec: str) -> TargetPolicy:
 
     Raises:
         ValueError: If the spec names no arm, carries an unreadable epsilon, or
-            is not one of the recognised forms.
+            is not one of the recognized forms.
     """
     text = spec.strip()
     epsilon: float | None = None

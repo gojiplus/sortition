@@ -127,7 +127,7 @@ class TestEqualQualityDifferentPrice:
         assert result.chosen.saving > 0.0
         # A majority, not all of them. The penalty is the dollar gap over a fixed
         # scale, so a short request where both arms cost pennies is barely
-        # penalised at all -- which is the intended behaviour and the reason the
+        # penalized at all -- which is the intended behavior and the reason the
         # scale is fixed rather than per request. On those rows the quality model
         # is estimating two arms that are genuinely identical, so its own noise
         # decides, and it lands near a coin flip.

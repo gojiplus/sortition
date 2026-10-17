@@ -204,7 +204,7 @@ def train(
     # to the cheapest, and a request with twice the spread gives up twice that.
     #
     # The spread rather than the mean bill. The bill is dominated by whichever
-    # arms the incumbent happened to favour, so scaling by it makes the weight
+    # arms the incumbent happened to favor, so scaling by it makes the weight
     # mean something different on every log -- on the simulator the dearest arm
     # sits 2.6 mean-bills above the cheapest, so a weight of 1.0 became a penalty
     # of 2.6 and the whole grid collapsed to "always cheapest".

@@ -1,4 +1,4 @@
-"""Durability and non-blocking behaviour of the log sink.
+"""Durability and non-blocking behavior of the log sink.
 
 The first class is the one that matters. Before this, ``LogStore`` flushed only
 at 200 buffered rows or on ``__exit__``, and a proxy never leaves that context --
@@ -360,7 +360,7 @@ class TestAlternativeSinks:
 
     The point of the shared base is that a second copy of the buffering and
     backpressure logic would drift, and a drifted copy loses logs silently. These
-    check that each sink actually gets the inherited behaviour.
+    check that each sink actually gets the inherited behavior.
     """
 
     def test_s3_writes_partitioned_keys(self) -> None:

@@ -30,14 +30,14 @@ on the paired difference must sit above ``-tolerance``.
 **A margin only fires if it exceeds the interval's half-width.** This is the
 property to understand before setting one. The rule accepts a point when the
 lower end of the interval on the paired difference clears ``-tolerance``, and for
-a trade that truly costs nothing the interval is centred on zero -- so its lower
+a trade that truly costs nothing the interval is centered on zero -- so its lower
 end is minus the half-width, and the margin has to be wider than that. On the
 equal-quality problem in ``tests/test_clean_cases.py`` the half-width is 0.034 at
 12,000 logged rows, 0.018 at 40,000 and 0.0098 at 120,000, so the default margin
 of 0.01 needs a log of several hundred thousand rows before it accepts anything
 at all.
 
-That is correct behaviour and it is also easy to mistake for the opposite
+That is correct behavior and it is also easy to mistake for the opposite
 conclusion, because a refusal on a thin log looks exactly like a refusal on
 traffic where the dear arm is genuinely worth its price.
 :attr:`SweepResult.next_best` exists for that: it names the margin that would

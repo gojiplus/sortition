@@ -145,7 +145,7 @@ class TestTraining:
     def test_cost_weight_shifts_the_choice_toward_cheaper_arms(self) -> None:
         logs = _logs(n=4_000)
         # A large request. The penalty is the dollar gap over a fixed scale, so a
-        # 300-token call is barely penalised however high the weight -- correctly,
+        # 300-token call is barely penalized however high the weight -- correctly,
         # since moving it saves almost nothing.
         features = {
             "n_tokens": 4_000.0,

@@ -6,7 +6,7 @@ install stays free of an observability dependency it may not want.
 
 The metric worth having most is ``sortition_plugin_errors_total``. The plugin
 catches its own exceptions and lets the request through untouched, which is the
-right behaviour and also means a broken policy looks exactly like a healthy one:
+right behavior and also means a broken policy looks exactly like a healthy one:
 requests succeed, latency is normal, and the log quietly stops being evaluable.
 A counter is the only thing that distinguishes those two states from outside.
 """
