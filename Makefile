@@ -6,7 +6,7 @@ install:
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
-	uv run mypy
+	uv run pyright
 
 format:
 	uv run ruff check --fix .
