@@ -106,7 +106,12 @@ convention = "google"
 minversion = "8"
 log_level = "INFO"
 xfail_strict = true
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # LiteLLM's response TypedDict uses static-only ReadOnly; the integration
+    # does not depend on runtime mutation protection for its reasoning summary.
+    "ignore:Item 'summary' on TypedDict class 'ChatCompletionReasoningItem' is using the `ReadOnly` qualifier[.] Pydantic will not protect items from any mutation on dictionary instances[.]:UserWarning:pydantic._internal._generate_schema",
+]
 testpaths = ["tests"]
 addopts = "-ra --strict-config --strict-markers"
 markers = [
