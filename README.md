@@ -1,4 +1,4 @@
-# sortition
+# sortition: did your LLM router choose well?
 
 **Counterfactual evaluation for LLM routing policies.**
 
