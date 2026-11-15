@@ -41,7 +41,7 @@ version = "0.2.0"
 # laptop against someone else's parquet file.
 eval = [
     "scipy>=1.14",
-    "polars>=1.43.2",
+    "polars>=2.1.0",
     "duckdb>=1.0",
     # Required at runtime by duckdb: .pl() converts results through
     # Arrow. Never imported directly, which is why deptry needs telling.
