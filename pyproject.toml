@@ -45,7 +45,7 @@ eval = [
     "duckdb>=1.0",
     # Required at runtime by duckdb: .pl() converts results through
     # Arrow. Never imported directly, which is why deptry needs telling.
-    "pyarrow>=25.0.1",
+    "pyarrow>=26.0.1",
     # The default estimator is doubly robust, so a cross-fitted outcome model is
     # part of the eval path rather than an optional upgrade to it.
     "scikit-learn>=1.5",
