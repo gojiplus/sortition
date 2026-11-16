@@ -45,7 +45,7 @@ eval = [
     "duckdb>=1.0",
     # Required at runtime by duckdb: .pl() converts results through
     # Arrow. Never imported directly, which is why deptry needs telling.
-    "pyarrow>=25.0.1",
+    "pyarrow>=26.0.1",
     # The default estimator is doubly robust, so a cross-fitted outcome model is
     # part of the eval path rather than an optional upgrade to it.
     "scikit-learn>=1.5",
@@ -58,7 +58,7 @@ litellm = ["litellm>=1.96.0"]
 metrics = ["prometheus-client>=0.20"]
 s3 = ["boto3>=1.43.67"]
 postgres = ["psycopg[binary]>=3.3.8"]
-cli = ["sortition[eval]", "typer>=0.28.0", "rich>=13.0"]
+cli = ["sortition[eval]", "typer>=0.29.0", "rich>=13.0"]
 all = ["sortition[eval,train,litellm,cli,metrics]"]
 
 [project.urls]
