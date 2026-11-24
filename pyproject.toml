@@ -57,7 +57,7 @@ train = [
 litellm = ["litellm>=1.96.0"]
 metrics = ["prometheus-client>=0.20"]
 s3 = ["boto3>=1.43.67"]
-postgres = ["psycopg[binary]>=3.3.8"]
+postgres = ["psycopg[binary]>=3.3.9"]
 cli = ["sortition[eval]", "typer>=0.29.1", "rich>=13.0"]
 all = ["sortition[eval,train,litellm,cli,metrics]"]
 
