@@ -29,7 +29,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "numpy>=2.5.2",
+    "numpy>=2.5.5",
     "pydantic>=2.14.3",
     # Rule tables are the documented interface for the day-one policy.
     "pyyaml>=6.0",
@@ -58,7 +58,7 @@ litellm = ["litellm>=1.96.0"]
 metrics = ["prometheus-client>=0.20"]
 s3 = ["boto3>=1.43.67"]
 postgres = ["psycopg[binary]>=3.3.8"]
-cli = ["sortition[eval]", "typer>=0.29.0", "rich>=13.0"]
+cli = ["sortition[eval]", "typer>=0.29.1", "rich>=13.0"]
 all = ["sortition[eval,train,litellm,cli,metrics]"]
 
 [project.urls]
@@ -81,7 +81,7 @@ test = [
     # extras: PyPI rejects direct URL references in project metadata.
     "simcheck @ git+https://github.com/finite-sample/simcheck",
 ]
-dev = ["sortition[all]", {include-group = "test"}, "ruff>=0.17.4", "pyright>=1.1.390", "pydoclint>=0.12.0", "deptry>=0.20", "codespell>=2.4"]
+dev = ["sortition[all]", {include-group = "test"}, "ruff>=0.17.5", "pyright>=1.1.390", "pydoclint>=0.12.0", "deptry>=0.20", "codespell>=2.4"]
 docs = ["sphinx>=9.1.1", "furo", "myst-parser", "sphinx-copybutton", "py-canon @ git+https://github.com/gojiplus/py-canon@v1"]
 
 [tool.ruff]
