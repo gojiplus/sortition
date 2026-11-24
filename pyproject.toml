@@ -42,7 +42,7 @@ version = "0.2.0"
 eval = [
     "scipy>=1.14",
     "polars>=2.1.0",
-    "duckdb>=1.0",
+    "duckdb>=2.0.0",
     # Required at runtime by duckdb: .pl() converts results through
     # Arrow. Never imported directly, which is why deptry needs telling.
     "pyarrow>=26.0.1",
